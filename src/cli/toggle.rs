@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use crate::cli::session_filter;
 use crate::tmux;
 
 pub(crate) fn cmd_toggle(args: &[String]) -> i32 {
@@ -145,14 +146,15 @@ pub(crate) fn cmd_toggle_all(_args: &[String]) -> i32 {
             }
         }
     } else {
+        let patterns = session_filter::exclude_patterns();
         let all_windows = tmux::run_tmux(&[
             "list-panes",
             "-a",
             "-F",
-            "#{window_id}|#{pane_current_path}",
+            "#{window_id}|#{session_name}|#{pane_current_path}",
         ])
         .unwrap_or_default();
-        for (window_id, pane_path) in unique_window_paths(&all_windows) {
+        for (window_id, pane_path) in windows_to_create(&all_windows, &patterns) {
             let args = vec!["--create-only".to_string(), window_id, pane_path];
             cmd_toggle(&args);
         }
@@ -168,14 +170,26 @@ fn any_sidebar_pane(output: &str) -> bool {
     })
 }
 
-fn unique_window_paths(output: &str) -> Vec<(String, String)> {
+/// Parse `list-panes -a` output formatted as
+/// `window_id|session_name|pane_current_path`, deduplicate by window id
+/// (a window belongs to exactly one session), and drop windows whose
+/// session matches the blocklist. Returns `(window_id, pane_path)` pairs
+/// ready to hand to `cmd_toggle --create-only`. `splitn(3, '|')` keeps any
+/// `|` (and all spaces) inside the trailing path field intact.
+fn windows_to_create(output: &str, patterns: &[String]) -> Vec<(String, String)> {
     let mut seen = HashSet::new();
     let mut windows = Vec::new();
 
     for line in output.lines() {
-        let Some((window_id, pane_path)) = line.split_once('|') else {
+        let mut parts = line.splitn(3, '|');
+        let (Some(window_id), Some(session_name), Some(pane_path)) =
+            (parts.next(), parts.next(), parts.next())
+        else {
             continue;
         };
+        if session_filter::session_excluded(session_name, patterns) {
+            continue;
+        }
         if seen.insert(window_id.to_string()) {
             windows.push((window_id.to_string(), pane_path.to_string()));
         }
@@ -363,10 +377,12 @@ mod tests {
     }
 
     #[test]
-    fn unique_window_paths_deduplicates_windows_and_keeps_spaces() {
-        let output = "%1|/Users/me/My Project\n%1|/Users/me/My Project\n%2|/tmp/another project";
+    fn windows_to_create_dedups_by_window_and_keeps_path_spaces() {
+        let output = "%1|main|/Users/me/My Project\n\
+                      %1|main|/Users/me/My Project\n\
+                      %2|work|/tmp/another project";
         assert_eq!(
-            unique_window_paths(output),
+            windows_to_create(output, &[]),
             vec![
                 ("%1".to_string(), "/Users/me/My Project".to_string()),
                 ("%2".to_string(), "/tmp/another project".to_string()),
@@ -375,11 +391,24 @@ mod tests {
     }
 
     #[test]
-    fn unique_window_paths_skips_malformed_lines() {
-        let output = "bad-line\n%1|/tmp";
+    fn windows_to_create_skips_malformed_lines() {
+        let output = "bad-line\n%1|main|/tmp";
         assert_eq!(
-            unique_window_paths(output),
+            windows_to_create(output, &[]),
             vec![("%1".to_string(), "/tmp".to_string())]
+        );
+    }
+
+    #[test]
+    fn windows_to_create_excludes_blocklisted_sessions() {
+        let output = "%1|main|/a\n%2|feat_popup_1|/b\n%3|work|/c";
+        let patterns = vec!["*_popup_*".to_string()];
+        assert_eq!(
+            windows_to_create(output, &patterns),
+            vec![
+                ("%1".to_string(), "/a".to_string()),
+                ("%3".to_string(), "/c".to_string()),
+            ]
         );
     }
 
