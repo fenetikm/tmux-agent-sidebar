@@ -21,6 +21,17 @@ pub(crate) fn cmd_toggle(args: &[String]) -> i32 {
     };
     let pane_path = positional.get(1).copied().unwrap_or("~");
 
+    // The blocklist gates *automatic* sidebar creation only. `--create-only`
+    // is passed by toggle-all and the after-new-window hook; the manual `e`
+    // key is not, so it always bypasses this guard. Bail silently when the
+    // target window's session is blocklisted.
+    if create_only {
+        let session_name = tmux::display_message(window_id, "#{session_name}");
+        if session_filter::session_excluded(&session_name, &session_filter::exclude_patterns()) {
+            return 0;
+        }
+    }
+
     // Check sidebar width setting
     let sidebar_width_setting = {
         let s = tmux::display_message(window_id, &format!("#{{{}}}", tmux::SIDEBAR_WIDTH));
