@@ -162,7 +162,7 @@ pub(crate) fn cmd_toggle_all(_args: &[String]) -> i32 {
             "list-panes",
             "-a",
             "-F",
-            "#{window_id}|#{session_name}|#{pane_current_path}",
+            "#{q:window_id}|#{q:session_name}|#{q:pane_current_path}",
         ])
         .unwrap_or_default();
         for (window_id, pane_path) in windows_to_create(&all_windows, &patterns) {
@@ -185,28 +185,65 @@ fn any_sidebar_pane(output: &str) -> bool {
 /// `window_id|session_name|pane_current_path`, deduplicate by window id
 /// (a window belongs to exactly one session), and drop windows whose
 /// session matches the blocklist. Returns `(window_id, pane_path)` pairs
-/// ready to hand to `cmd_toggle --create-only`. `splitn(3, '|')` keeps any
-/// `|` (and all spaces) inside the trailing path field intact.
+/// ready to hand to `cmd_toggle --create-only`. Fields are emitted with
+/// tmux `#{q:...}` escaping, so literal pipes in session names and paths do
+/// not become separators.
 fn windows_to_create(output: &str, patterns: &[String]) -> Vec<(String, String)> {
     let mut seen = HashSet::new();
     let mut windows = Vec::new();
 
     for line in output.lines() {
-        let mut parts = line.splitn(3, '|');
-        let (Some(window_id), Some(session_name), Some(pane_path)) =
-            (parts.next(), parts.next(), parts.next())
-        else {
+        let parts = split_escaped_fields(line, '|');
+        if parts.len() != 3 {
             continue;
-        };
+        }
+        let window_id = &parts[0];
+        let session_name = &parts[1];
+        let pane_path = &parts[2];
         if session_filter::session_excluded(session_name, patterns) {
             continue;
         }
-        if seen.insert(window_id.to_string()) {
-            windows.push((window_id.to_string(), pane_path.to_string()));
+        if seen.insert(window_id.clone()) {
+            windows.push((window_id.clone(), pane_path.clone()));
         }
     }
 
     windows
+}
+
+/// Split a tmux format line while honoring tmux `#{q:...}` backslash escapes.
+fn split_escaped_fields(line: &str, delimiter: char) -> Vec<String> {
+    let mut fields = Vec::new();
+    let mut current = String::new();
+    let mut escaped = false;
+
+    for ch in line.chars() {
+        if escaped {
+            current.push(ch);
+            escaped = false;
+            continue;
+        }
+
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+
+        if ch == delimiter {
+            fields.push(current);
+            current = String::new();
+            continue;
+        }
+
+        current.push(ch);
+    }
+
+    if escaped {
+        current.push('\\');
+    }
+
+    fields.push(current);
+    fields
 }
 
 /// Which side of the window the sidebar pane is created on, driven by
@@ -420,6 +457,16 @@ mod tests {
                 ("%1".to_string(), "/a".to_string()),
                 ("%3".to_string(), "/c".to_string()),
             ]
+        );
+    }
+
+    #[test]
+    fn windows_to_create_handles_escaped_pipes_in_session_and_path() {
+        let output = "%1|review\\|pipe|/tmp/with\\|pipe\n%2|main|/tmp/main";
+        let patterns = vec!["review|pipe".to_string()];
+        assert_eq!(
+            windows_to_create(output, &patterns),
+            vec![("%2".to_string(), "/tmp/main".to_string())]
         );
     }
 
