@@ -92,6 +92,11 @@ pub const SIDEBAR_BOTTOM_HEIGHT: &str = "@sidebar_bottom_height";
 pub const SIDEBAR_PET: &str = "@sidebar_pet";
 pub const SIDEBAR_NOTIFICATIONS: &str = "@sidebar_notifications";
 pub const SIDEBAR_NOTIFICATIONS_EVENTS: &str = "@sidebar_notifications_events";
+/// Whitespace-separated glob patterns of session names excluded from
+/// *automatic* sidebar creation (`toggle-all` and the `after-new-window`
+/// hook). Unset/empty => no exclusions. Manual `toggle` (the `e` key)
+/// ignores this list.
+pub const SIDEBAR_EXCLUDE_SESSIONS: &str = "@sidebar_exclude_sessions";
 
 pub const SIDEBAR_COLOR_ACCENT: &str = "@sidebar_color_accent";
 pub const SIDEBAR_COLOR_BORDER: &str = "@sidebar_color_border";
