@@ -107,50 +107,37 @@ pub(super) fn handle_key_event(
     }
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     match key.code {
-        KeyCode::Esc => {
+        KeyCode::Esc
             if state.focus_state.focus == Focus::ActivityLog
-                || state.focus_state.focus == Focus::Filter
-            {
-                state.focus_state.focus = Focus::Panes;
-            }
+                || state.focus_state.focus == Focus::Filter =>
+        {
+            state.focus_state.focus = Focus::Panes;
         }
         KeyCode::Char('j') | KeyCode::Down => pane_nav_down(state),
         KeyCode::Char('n') if ctrl => pane_nav_down(state),
         KeyCode::Char('k') | KeyCode::Up => pane_nav_up(state),
         KeyCode::Char('p') if ctrl => pane_nav_up(state),
-        KeyCode::Char('h') | KeyCode::Left => {
-            if state.focus_state.focus == Focus::Filter {
-                state.global.status_filter = state.global.status_filter.prev();
-                state.global.save_filter();
-                state.rebuild_row_targets();
-            }
+        KeyCode::Char('h') | KeyCode::Left if state.focus_state.focus == Focus::Filter => {
+            state.global.status_filter = state.global.status_filter.prev();
+            state.global.save_filter();
+            state.rebuild_row_targets();
         }
-        KeyCode::Char('l') | KeyCode::Right => {
-            if state.focus_state.focus == Focus::Filter {
-                state.global.status_filter = state.global.status_filter.next();
-                state.global.save_filter();
-                state.rebuild_row_targets();
-            }
+        KeyCode::Char('l') | KeyCode::Right if state.focus_state.focus == Focus::Filter => {
+            state.global.status_filter = state.global.status_filter.next();
+            state.global.save_filter();
+            state.rebuild_row_targets();
         }
-        KeyCode::Char('r') => {
-            if state.focus_state.focus == Focus::Filter {
-                state.toggle_repo_popup();
-            }
+        KeyCode::Char('r') if state.focus_state.focus == Focus::Filter => {
+            state.toggle_repo_popup();
         }
-        KeyCode::Char('n') => {
-            if state.focus_state.focus == Focus::Panes {
-                state.open_spawn_input_from_selection();
-            }
+        KeyCode::Char('n') if state.focus_state.focus == Focus::Panes => {
+            state.open_spawn_input_from_selection();
         }
-        KeyCode::Char('x') => {
-            if state.focus_state.focus == Focus::Panes {
-                state.open_remove_confirm();
-            }
+        KeyCode::Char('x') if state.focus_state.focus == Focus::Panes => {
+            state.open_remove_confirm();
         }
-        KeyCode::Enter => {
-            if state.focus_state.focus == Focus::Panes {
-                state.activate_selected_pane();
-            }
+        KeyCode::Enter if state.focus_state.focus == Focus::Panes => {
+            state.activate_selected_pane();
         }
         KeyCode::Tab => {
             state.global.status_filter = state.global.status_filter.next();
