@@ -65,6 +65,12 @@ Full walkthroughs: [Claude Code setup](https://hiroppy.github.io/tmux-agent-side
 
 `prefix + e` toggles the sidebar in the current window, `prefix + E` toggles it everywhere.
 
+To exclude sessions from automatic sidebar creation:
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `@sidebar_exclude_sessions` | empty/unset | Space-separated glob patterns (`*` and `?`); sessions whose name matches any pattern are excluded from automatic sidebar creation (`toggle-all` and the new-window hook). Manual toggle still works. Example: `*_popup_* scratch`. |
+
 ## Documentation
 
 The [documentation site](https://hiroppy.github.io/tmux-agent-sidebar/) covers every feature and option:
