@@ -56,11 +56,13 @@ tmux-agent-sidebar focus <next|prev> [--scope <all|session>]
 Examples:
 
 ```tmux
-bind-key C-n run-shell 'tmux-agent-sidebar focus next --scope all'
-bind-key C-p run-shell 'tmux-agent-sidebar focus prev --scope all'
-bind-key M-n run-shell 'tmux-agent-sidebar focus next --scope session'
-bind-key M-p run-shell 'tmux-agent-sidebar focus prev --scope session'
+bind-key C-n run-shell '"#{@agent_sidebar_bin}" focus next --scope all'
+bind-key C-p run-shell '"#{@agent_sidebar_bin}" focus prev --scope all'
+bind-key M-n run-shell '"#{@agent_sidebar_bin}" focus next --scope session'
+bind-key M-p run-shell '"#{@agent_sidebar_bin}" focus prev --scope session'
 ```
+
+The plugin sets `@agent_sidebar_bin` to the absolute path of the binary it loaded, so bindings resolve it at press time and do not depend on the binary being on your `PATH`. Define these after the plugin is loaded in your `tmux.conf`.
 
 `--scope all` is the default and walks running agents across all tmux sessions. `--scope session` walks only the session containing the currently active pane. The command wraps at list boundaries and exits quietly when there is no other running agent to focus.
 

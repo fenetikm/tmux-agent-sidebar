@@ -70,11 +70,13 @@ Full walkthroughs: [Claude Code setup](https://hiroppy.github.io/tmux-agent-side
 To jump directly between running agents from tmux bindings:
 
 ```tmux
-bind-key C-n run-shell 'tmux-agent-sidebar focus next --scope all'
-bind-key C-p run-shell 'tmux-agent-sidebar focus prev --scope all'
-bind-key M-n run-shell 'tmux-agent-sidebar focus next --scope session'
-bind-key M-p run-shell 'tmux-agent-sidebar focus prev --scope session'
+bind-key C-n run-shell '"#{@agent_sidebar_bin}" focus next --scope all'
+bind-key C-p run-shell '"#{@agent_sidebar_bin}" focus prev --scope all'
+bind-key M-n run-shell '"#{@agent_sidebar_bin}" focus next --scope session'
+bind-key M-p run-shell '"#{@agent_sidebar_bin}" focus prev --scope session'
 ```
+
+`@agent_sidebar_bin` is set by the plugin to the binary it loaded, so these bindings need no `PATH` setup. Add them after the plugin is loaded.
 
 `--scope all` navigates every running agent across tmux. `--scope session` stays within the session containing the currently active pane.
 
