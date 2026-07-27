@@ -12,14 +12,21 @@ enum Scope {
     Session,
 }
 
+/// Pick the pane to jump to, or `None` when the cursor is already on the only
+/// candidate (or there are no candidates at all).
+///
+/// `active_session` is the session holding `active_pane_id`, resolved through
+/// tmux rather than by searching `sessions` — the cursor is often on a pane
+/// that isn't an agent pane at all, and those never appear in `sessions`.
 fn select_target_pane(
     sessions: &[SessionInfo],
     active_pane_id: &str,
+    active_session: Option<&str>,
     direction: Direction,
     scope: Scope,
 ) -> Option<String> {
-    let pane_ids = eligible_pane_ids(sessions, active_pane_id, scope);
-    if pane_ids.len() <= 1 {
+    let pane_ids = eligible_pane_ids(sessions, active_session, scope);
+    if pane_ids.is_empty() {
         return None;
     }
 
@@ -30,24 +37,20 @@ fn select_target_pane(
         (Direction::Next, Some(index)) => (index + 1) % pane_ids.len(),
         (Direction::Prev, Some(0)) => pane_ids.len() - 1,
         (Direction::Prev, Some(index)) => index - 1,
+        // The cursor is on a pane outside the candidate list (a shell, the
+        // sidebar, an editor). Enter the list from whichever end the
+        // direction implies instead of treating it as "nowhere to go".
         (Direction::Next, None) => 0,
         (Direction::Prev, None) => pane_ids.len() - 1,
     };
 
-    pane_ids.get(target_index).cloned()
-}
-
-fn active_session_name<'a>(sessions: &'a [SessionInfo], active_pane_id: &str) -> Option<&'a str> {
-    for session in sessions {
-        for window in &session.windows {
-            for pane in &window.panes {
-                if pane.pane_id == active_pane_id {
-                    return Some(session.session_name.as_str());
-                }
-            }
-        }
-    }
-    None
+    // With a single candidate every direction lands back on the cursor when
+    // the cursor is already that pane — that is the genuine no-op the caller
+    // reports on.
+    pane_ids
+        .get(target_index)
+        .filter(|target| *target != active_pane_id)
+        .cloned()
 }
 
 /// Every agent pane eligible for cycling, in tmux enumeration order.
@@ -56,10 +59,21 @@ fn active_session_name<'a>(sessions: &'a [SessionInfo], active_pane_id: &str) ->
 /// an `@pane_agent` marker (and the sidebar's own pane), so everything left
 /// here is an agent pane. Cycling covers idle and waiting agents too — those
 /// are precisely the ones a user wants to jump to.
-fn eligible_pane_ids(sessions: &[SessionInfo], active_pane_id: &str, scope: Scope) -> Vec<String> {
+///
+/// A `Session` scope with no resolvable `active_session` yields nothing. The
+/// alternative — falling back to every session — would silently turn
+/// `--scope session` into `--scope all`.
+fn eligible_pane_ids(
+    sessions: &[SessionInfo],
+    active_session: Option<&str>,
+    scope: Scope,
+) -> Vec<String> {
     let scoped_session = match scope {
         Scope::All => None,
-        Scope::Session => active_session_name(sessions, active_pane_id),
+        Scope::Session => match active_session {
+            Some(name) => Some(name),
+            None => return Vec::new(),
+        },
     };
 
     sessions
@@ -138,8 +152,14 @@ pub fn cmd_focus(args: &[String]) -> i32 {
         eprintln!("tmux-agent-sidebar focus: not running inside tmux");
         return 1;
     };
-    let Some(target_pane_id) = select_target_pane(&sessions, &active_pane_id, direction, scope)
-    else {
+    let active_session = crate::tmux::pane_session_name(&active_pane_id);
+    let Some(target_pane_id) = select_target_pane(
+        &sessions,
+        &active_pane_id,
+        active_session.as_deref(),
+        direction,
+        scope,
+    ) else {
         crate::tmux::show_message(no_target_message(scope));
         return 0;
     };
@@ -204,7 +224,7 @@ mod tests {
         )];
 
         assert_eq!(
-            select_target_pane(&sessions, "%1", Direction::Next, Scope::All),
+            select_target_pane(&sessions, "%1", Some("one"), Direction::Next, Scope::All),
             Some("%2".into())
         );
     }
@@ -217,7 +237,7 @@ mod tests {
         ];
 
         assert_eq!(
-            select_target_pane(&sessions, "%1", Direction::Prev, Scope::All),
+            select_target_pane(&sessions, "%1", Some("one"), Direction::Prev, Scope::All),
             Some("%2".into())
         );
     }
@@ -236,7 +256,13 @@ mod tests {
         ];
 
         assert_eq!(
-            select_target_pane(&sessions, "%2", Direction::Next, Scope::Session),
+            select_target_pane(
+                &sessions,
+                "%2",
+                Some("two"),
+                Direction::Next,
+                Scope::Session
+            ),
             Some("%3".into())
         );
     }
@@ -253,8 +279,62 @@ mod tests {
         )];
 
         assert_eq!(
-            select_target_pane(&sessions, "%1", Direction::Next, Scope::Session),
+            select_target_pane(
+                &sessions,
+                "%1",
+                Some("one"),
+                Direction::Next,
+                Scope::Session
+            ),
             Some("%2".into())
+        );
+    }
+
+    #[test]
+    fn lone_eligible_pane_is_focused_from_a_non_agent_pane() {
+        let sessions = vec![session(
+            "one",
+            vec![pane("%1", false, PaneStatus::Idle, "one")],
+        )];
+
+        for direction in [Direction::Next, Direction::Prev] {
+            assert_eq!(
+                select_target_pane(&sessions, "%9", Some("one"), direction, Scope::All),
+                Some("%1".into()),
+                "{direction:?} should jump to the only agent pane"
+            );
+        }
+    }
+
+    #[test]
+    fn session_scope_from_a_non_agent_pane_stays_in_that_session() {
+        let sessions = vec![
+            session("one", vec![pane("%1", false, PaneStatus::Idle, "one")]),
+            session("two", vec![pane("%2", false, PaneStatus::Idle, "two")]),
+        ];
+
+        assert_eq!(
+            select_target_pane(
+                &sessions,
+                "%9",
+                Some("two"),
+                Direction::Next,
+                Scope::Session
+            ),
+            Some("%2".into())
+        );
+    }
+
+    #[test]
+    fn session_scope_without_a_resolvable_session_finds_nothing() {
+        let sessions = vec![session(
+            "one",
+            vec![pane("%1", false, PaneStatus::Idle, "one")],
+        )];
+
+        assert_eq!(
+            select_target_pane(&sessions, "%9", None, Direction::Next, Scope::Session),
+            None
         );
     }
 
@@ -269,7 +349,7 @@ mod tests {
         )];
 
         assert_eq!(
-            select_target_pane(&sessions, "%1", Direction::Next, Scope::All),
+            select_target_pane(&sessions, "%1", Some("one"), Direction::Next, Scope::All),
             Some("%2".into())
         );
     }
@@ -288,7 +368,7 @@ mod tests {
         )];
 
         assert_eq!(
-            eligible_pane_ids(&sessions, "%1", Scope::All),
+            eligible_pane_ids(&sessions, Some("one"), Scope::All),
             vec!["%1", "%2", "%3", "%4", "%5"]
         );
     }
@@ -313,7 +393,7 @@ mod tests {
         )];
 
         assert_eq!(
-            select_target_pane(&sessions, "%1", Direction::Next, Scope::All),
+            select_target_pane(&sessions, "%1", Some("one"), Direction::Next, Scope::All),
             None
         );
     }

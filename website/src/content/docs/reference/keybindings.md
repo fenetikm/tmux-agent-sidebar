@@ -32,7 +32,7 @@ bind-key M-p run-shell '"#{@agent_sidebar_bin}" focus prev --scope session'
 
 `@agent_sidebar_bin` is set by the plugin to the binary it loaded, so these bindings work without the binary being on your `PATH`. tmux expands the format when the key is pressed, and the surrounding double quotes keep paths containing spaces intact. Place the bindings after the plugin is loaded in your `tmux.conf`.
 
-`--scope all` navigates agent panes across every tmux session. `--scope session` limits navigation to the session containing the currently active pane. Every agent pane is eligible regardless of status, so idle and waiting agents are included. Navigation wraps at the ends of the eligible list.
+`--scope all` navigates agent panes across every tmux session. `--scope session` limits navigation to the session containing the currently active pane. Every agent pane is eligible regardless of status, so idle and waiting agents are included. Navigation wraps at the ends of the eligible list, and pressing a key from a non-agent pane enters the list from the corresponding end.
 
 ## Repo filter popup
 

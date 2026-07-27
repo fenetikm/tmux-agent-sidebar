@@ -28,7 +28,8 @@ tmux-agent-sidebar focus prev --scope session
 - `focus next --scope session` jumps to the next agent pane in the session containing the currently active pane.
 - `focus prev --scope session` does the same in reverse.
 - Navigation wraps at the start and end of the eligible pane list.
-- If the only eligible agent pane is the current pane (or there are none), the command writes a short explanation to the tmux status line and exits `0`. A silent no-op is indistinguishable from a broken binary, so the command always reports why nothing moved.
+- When the cursor sits on a pane outside the eligible list (a shell, an editor, the sidebar itself), the command enters the list from the end the direction implies: `next` focuses the first eligible pane, `prev` the last. This holds when only one eligible pane exists — the first press jumps to it, and only a subsequent press reports the no-op.
+- If the target the direction resolves to is the pane already focused, the command writes a short explanation to the tmux status line and exits `0`. A silent no-op is indistinguishable from a broken binary, so the command always reports why nothing moved.
 - If the command cannot resolve an active pane (i.e. it is not running inside tmux), it prints an error to stderr and returns a non-zero exit code.
 - Invalid directions or scopes should return a non-zero exit code and print a concise usage message.
 
@@ -37,6 +38,8 @@ tmux-agent-sidebar focus prev --scope session
 Eligible panes are every pane discovered by the existing tmux query path, regardless of `PaneStatus`. That path already drops panes with no `@pane_agent` marker and the sidebar's own pane, so what remains is exactly the set of agent panes.
 
 Status is deliberately *not* a filter. Restricting to `Running` made the command a no-op in the common case of one working agent plus several idle ones — and idle or waiting agents are precisely the ones a user wants to jump to.
+
+For `--scope session`, the session holding the active pane is resolved through tmux (`pane_session_name`), not by searching the eligible list. The cursor is frequently on a non-agent pane, which never appears in that list; searching it would yield no session and silently degrade `--scope session` into `--scope all`. When the session genuinely cannot be resolved the eligible list is empty and the command reports the no-op.
 
 The command should not depend on the live TUI process or sidebar UI state. This keeps tmux key bindings reliable even when the sidebar pane is closed.
 

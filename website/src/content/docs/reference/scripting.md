@@ -66,7 +66,9 @@ The plugin sets `@agent_sidebar_bin` to the absolute path of the binary it loade
 
 `--scope all` is the default and walks agent panes across all tmux sessions. `--scope session` walks only the session containing the currently active pane. Every agent pane is eligible regardless of status, so idle and waiting agents are included alongside running ones.
 
-The command wraps at list boundaries. When there is no other agent pane to focus it writes a short note to the tmux status line and exits `0`; when it is not running inside tmux at all it prints an error to stderr and exits non-zero.
+The command wraps at list boundaries. From a pane that isn't an agent pane — a shell, an editor, the sidebar — `next` enters the list at the first agent pane and `prev` at the last, so a single agent pane is still reachable in one press.
+
+When the jump would land on the pane you are already in, the command writes a short note to the tmux status line and exits `0`; when it is not running inside tmux at all it prints an error to stderr and exits non-zero.
 
 ## Example status line snippet
 
