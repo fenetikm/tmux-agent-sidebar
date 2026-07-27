@@ -3,18 +3,39 @@ use crate::tmux;
 /// Read `@sidebar_exclude_sessions` and split into whitespace-separated
 /// glob patterns. Unset/empty => empty vec => nothing excluded.
 #[allow(dead_code)]
-pub(crate) fn exclude_patterns() -> Vec<String> {
-    tmux::get_option(tmux::SIDEBAR_EXCLUDE_SESSIONS)
+pub(crate) fn exclude_session_patterns() -> Vec<String> {
+    split_patterns(tmux::SIDEBAR_EXCLUDE_SESSIONS)
+}
+
+/// Read `@sidebar_exclude_windows` and split into whitespace-separated
+/// glob patterns. Unset/empty => empty vec => nothing excluded.
+#[allow(dead_code)]
+pub(crate) fn exclude_window_patterns() -> Vec<String> {
+    split_patterns(tmux::SIDEBAR_EXCLUDE_WINDOWS)
+}
+
+/// Read a tmux option and split it into whitespace-separated glob patterns.
+fn split_patterns(option: &str) -> Vec<String> {
+    tmux::get_option(option)
         .map(|value| value.split_whitespace().map(str::to_string).collect())
         .unwrap_or_default()
 }
 
-/// True if `session_name` matches any blocklist pattern.
+/// True if `session_name` matches any session blocklist pattern.
 #[allow(dead_code)]
 pub(crate) fn session_excluded(session_name: &str, patterns: &[String]) -> bool {
-    patterns
-        .iter()
-        .any(|pattern| glob_match(pattern, session_name))
+    name_excluded(session_name, patterns)
+}
+
+/// True if `window_name` matches any window blocklist pattern.
+#[allow(dead_code)]
+pub(crate) fn window_excluded(window_name: &str, patterns: &[String]) -> bool {
+    name_excluded(window_name, patterns)
+}
+
+/// True if `name` matches any blocklist pattern.
+fn name_excluded(name: &str, patterns: &[String]) -> bool {
+    patterns.iter().any(|pattern| glob_match(pattern, name))
 }
 
 /// Anchored glob match supporting `*` (any run, including empty) and `?`
@@ -87,5 +108,18 @@ mod tests {
     #[test]
     fn session_excluded_is_false_for_empty_patterns() {
         assert!(!session_excluded("anything", &[]));
+    }
+
+    #[test]
+    fn window_excluded_matches_any_pattern() {
+        let patterns = vec!["*_popup_*".to_string(), "logs".to_string()];
+        assert!(window_excluded("feat_popup_2", &patterns));
+        assert!(window_excluded("logs", &patterns));
+        assert!(!window_excluded("editor", &patterns));
+    }
+
+    #[test]
+    fn window_excluded_is_false_for_empty_patterns() {
+        assert!(!window_excluded("anything", &[]));
     }
 }

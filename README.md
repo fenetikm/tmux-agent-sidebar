@@ -83,6 +83,7 @@ To exclude sessions from automatic sidebar creation:
 | Option | Default | Description |
 | --- | --- | --- |
 | `@sidebar_exclude_sessions` | empty/unset | Space-separated glob patterns (`*` and `?`); sessions whose name matches any pattern are excluded from automatic sidebar creation (`toggle-all` and the new-window hook). Manual toggle still works. Example: `*_popup_* scratch`. |
+| `@sidebar_exclude_windows` | empty/unset | Space-separated glob patterns (`*` and `?`); windows whose name matches any pattern are excluded from automatic sidebar creation (`toggle-all` and the new-window hook). Manual toggle still works. Example: `logs scratch-?`. |
 
 ## Documentation
 

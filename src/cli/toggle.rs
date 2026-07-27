@@ -24,10 +24,18 @@ pub(crate) fn cmd_toggle(args: &[String]) -> i32 {
     // The blocklist gates *automatic* sidebar creation only. `--create-only`
     // is passed by toggle-all and the after-new-window hook; the manual `e`
     // key is not, so it always bypasses this guard. Bail silently when the
-    // target window's session is blocklisted.
+    // target window's session or window name is blocklisted.
     if create_only {
         let session_name = tmux::display_message(window_id, "#{session_name}");
-        if session_filter::session_excluded(&session_name, &session_filter::exclude_patterns()) {
+        if session_filter::session_excluded(
+            &session_name,
+            &session_filter::exclude_session_patterns(),
+        ) {
+            return 0;
+        }
+        let window_name = tmux::display_message(window_id, "#{window_name}");
+        if session_filter::window_excluded(&window_name, &session_filter::exclude_window_patterns())
+        {
             return 0;
         }
     }
@@ -157,15 +165,18 @@ pub(crate) fn cmd_toggle_all(_args: &[String]) -> i32 {
             }
         }
     } else {
-        let patterns = session_filter::exclude_patterns();
+        let session_patterns = session_filter::exclude_session_patterns();
+        let window_patterns = session_filter::exclude_window_patterns();
         let all_windows = tmux::run_tmux(&[
             "list-panes",
             "-a",
             "-F",
-            "#{q:window_id}|#{q:session_name}|#{q:pane_current_path}",
+            "#{q:window_id}|#{q:session_name}|#{q:window_name}|#{q:pane_current_path}",
         ])
         .unwrap_or_default();
-        for (window_id, pane_path) in windows_to_create(&all_windows, &patterns) {
+        for (window_id, pane_path) in
+            windows_to_create(&all_windows, &session_patterns, &window_patterns)
+        {
             let args = vec!["--create-only".to_string(), window_id, pane_path];
             cmd_toggle(&args);
         }
@@ -182,25 +193,33 @@ fn any_sidebar_pane(output: &str) -> bool {
 }
 
 /// Parse `list-panes -a` output formatted as
-/// `window_id|session_name|pane_current_path`, deduplicate by window id
-/// (a window belongs to exactly one session), and drop windows whose
-/// session matches the blocklist. Returns `(window_id, pane_path)` pairs
-/// ready to hand to `cmd_toggle --create-only`. Fields are emitted with
-/// tmux `#{q:...}` escaping, so literal pipes in session names and paths do
-/// not become separators.
-fn windows_to_create(output: &str, patterns: &[String]) -> Vec<(String, String)> {
+/// `window_id|session_name|window_name|pane_current_path`, deduplicate by
+/// window id (a window belongs to exactly one session), and drop windows
+/// whose session or window name matches the respective blocklist. Returns
+/// `(window_id, pane_path)` pairs ready to hand to `cmd_toggle
+/// --create-only`. Fields are emitted with tmux `#{q:...}` escaping, so
+/// literal pipes in session/window names and paths do not become separators.
+fn windows_to_create(
+    output: &str,
+    session_patterns: &[String],
+    window_patterns: &[String],
+) -> Vec<(String, String)> {
     let mut seen = HashSet::new();
     let mut windows = Vec::new();
 
     for line in output.lines() {
         let parts = split_escaped_fields(line, '|');
-        if parts.len() != 3 {
+        if parts.len() != 4 {
             continue;
         }
         let window_id = &parts[0];
         let session_name = &parts[1];
-        let pane_path = &parts[2];
-        if session_filter::session_excluded(session_name, patterns) {
+        let window_name = &parts[2];
+        let pane_path = &parts[3];
+        if session_filter::session_excluded(session_name, session_patterns) {
+            continue;
+        }
+        if session_filter::window_excluded(window_name, window_patterns) {
             continue;
         }
         if seen.insert(window_id.clone()) {
@@ -426,11 +445,11 @@ mod tests {
 
     #[test]
     fn windows_to_create_dedups_by_window_and_keeps_path_spaces() {
-        let output = "%1|main|/Users/me/My Project\n\
-                      %1|main|/Users/me/My Project\n\
-                      %2|work|/tmp/another project";
+        let output = "%1|main|editor|/Users/me/My Project\n\
+                      %1|main|editor|/Users/me/My Project\n\
+                      %2|work|editor|/tmp/another project";
         assert_eq!(
-            windows_to_create(output, &[]),
+            windows_to_create(output, &[], &[]),
             vec![
                 ("%1".to_string(), "/Users/me/My Project".to_string()),
                 ("%2".to_string(), "/tmp/another project".to_string()),
@@ -440,19 +459,19 @@ mod tests {
 
     #[test]
     fn windows_to_create_skips_malformed_lines() {
-        let output = "bad-line\n%1|main|/tmp";
+        let output = "bad-line\n%1|main|editor|/tmp";
         assert_eq!(
-            windows_to_create(output, &[]),
+            windows_to_create(output, &[], &[]),
             vec![("%1".to_string(), "/tmp".to_string())]
         );
     }
 
     #[test]
     fn windows_to_create_excludes_blocklisted_sessions() {
-        let output = "%1|main|/a\n%2|feat_popup_1|/b\n%3|work|/c";
-        let patterns = vec!["*_popup_*".to_string()];
+        let output = "%1|main|editor|/a\n%2|feat_popup_1|editor|/b\n%3|work|editor|/c";
+        let session_patterns = vec!["*_popup_*".to_string()];
         assert_eq!(
-            windows_to_create(output, &patterns),
+            windows_to_create(output, &session_patterns, &[]),
             vec![
                 ("%1".to_string(), "/a".to_string()),
                 ("%3".to_string(), "/c".to_string()),
@@ -461,11 +480,21 @@ mod tests {
     }
 
     #[test]
-    fn windows_to_create_handles_escaped_pipes_in_session_and_path() {
-        let output = "%1|review\\|pipe|/tmp/with\\|pipe\n%2|main|/tmp/main";
-        let patterns = vec!["review|pipe".to_string()];
+    fn windows_to_create_excludes_blocklisted_windows() {
+        let output = "%1|main|editor|/a\n%2|main|logs|/b\n%3|main|scratch-1|/c";
+        let window_patterns = vec!["logs".to_string(), "scratch-?".to_string()];
         assert_eq!(
-            windows_to_create(output, &patterns),
+            windows_to_create(output, &[], &window_patterns),
+            vec![("%1".to_string(), "/a".to_string())]
+        );
+    }
+
+    #[test]
+    fn windows_to_create_handles_escaped_pipes_in_session_and_path() {
+        let output = "%1|review\\|pipe|edit\\|or|/tmp/with\\|pipe\n%2|main|editor|/tmp/main";
+        let session_patterns = vec!["review|pipe".to_string()];
+        assert_eq!(
+            windows_to_create(output, &session_patterns, &[]),
             vec![("%2".to_string(), "/tmp/main".to_string())]
         );
     }
