@@ -19,6 +19,19 @@ description: Every shortcut in the sidebar, the worktree spawn modal, and the cl
 | `Shift+Tab`    | Switch bottom panel tab (Activity ⇄ Git)                      |
 | `Esc`          | Return focus or close the popup                               |
 
+## Optional tmux bindings
+
+The plugin does not reserve next/previous-agent keys by default. Add your own bindings if you want to jump directly between running agents without opening the sidebar:
+
+```tmux
+bind-key C-n run-shell 'tmux-agent-sidebar focus next --scope all'
+bind-key C-p run-shell 'tmux-agent-sidebar focus prev --scope all'
+bind-key M-n run-shell 'tmux-agent-sidebar focus next --scope session'
+bind-key M-p run-shell 'tmux-agent-sidebar focus prev --scope session'
+```
+
+`--scope all` navigates running agents across every tmux session. `--scope session` limits navigation to the session containing the currently active pane. Navigation wraps at the ends of the eligible list.
+
 ## Repo filter popup
 
 Opened with `r` or by clicking the repo filter button in the sidebar header.

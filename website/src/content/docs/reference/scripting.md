@@ -43,6 +43,26 @@ tmux show -t "$pane_id" -pv @pane_agent
 - **Status bar integration** — surface `@pane_status` in your tmux status line to light up when an agent needs attention.
 - **Custom notifications** — if you don't like the built-in desktop notifications, build your own pipeline off the same pane options.
 - **Shell aliases** — gate side-effectful commands on agent state.
+- **Agent navigation** — bind `tmux-agent-sidebar focus` commands to jump between running agents.
+
+## Agent focus command
+
+Use `focus` from tmux bindings or scripts to jump to the next or previous running agent pane:
+
+```bash
+tmux-agent-sidebar focus <next|prev> [--scope <all|session>]
+```
+
+Examples:
+
+```tmux
+bind-key C-n run-shell 'tmux-agent-sidebar focus next --scope all'
+bind-key C-p run-shell 'tmux-agent-sidebar focus prev --scope all'
+bind-key M-n run-shell 'tmux-agent-sidebar focus next --scope session'
+bind-key M-p run-shell 'tmux-agent-sidebar focus prev --scope session'
+```
+
+`--scope all` is the default and walks running agents across all tmux sessions. `--scope session` walks only the session containing the currently active pane. The command wraps at list boundaries and exits quietly when there is no other running agent to focus.
 
 ## Example status line snippet
 

@@ -18,6 +18,8 @@
   — prompts, tool calls, response previews, background shell state, wait reasons, task progress, and subagent trees refresh as the agents work
 - **Worktrees, included** 
   — spawn a fresh worktree + agent from the sidebar and tear it down — window, worktree, and branch — in one keystroke
+- **Agent focus commands**
+  — bind keys to jump to the next or previous running agent globally or within the current session
 - **Desktop notifications** 
   — native alerts when an agent finishes, needs permission, or errors out
 
@@ -64,6 +66,17 @@ Full walkthroughs: [Claude Code setup](https://hiroppy.github.io/tmux-agent-side
 ### 3. Toggle the sidebar
 
 `prefix + e` toggles the sidebar in the current window, `prefix + E` toggles it everywhere.
+
+To jump directly between running agents from tmux bindings:
+
+```tmux
+bind-key C-n run-shell 'tmux-agent-sidebar focus next --scope all'
+bind-key C-p run-shell 'tmux-agent-sidebar focus prev --scope all'
+bind-key M-n run-shell 'tmux-agent-sidebar focus next --scope session'
+bind-key M-p run-shell 'tmux-agent-sidebar focus prev --scope session'
+```
+
+`--scope all` navigates every running agent across tmux. `--scope session` stays within the session containing the currently active pane.
 
 To exclude sessions from automatic sidebar creation:
 

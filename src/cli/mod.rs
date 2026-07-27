@@ -1,4 +1,5 @@
 pub mod capture;
+mod focus;
 mod hook;
 mod label;
 pub mod plugin_state;
@@ -26,6 +27,7 @@ pub fn run(args: &[String]) -> Option<i32> {
         "set-status" => cmd_set_status(rest),
         "spawn" => spawn::cmd_spawn(rest),
         "capture" => capture::cmd_capture(rest),
+        "focus" => focus::cmd_focus(rest),
         "--version" | "version" => {
             println!("{}", crate::VERSION);
             0
