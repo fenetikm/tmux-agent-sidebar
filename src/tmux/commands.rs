@@ -35,6 +35,12 @@ pub fn display_message(target: &str, format: &str) -> String {
         .unwrap_or_default()
 }
 
+/// Show `text` on the attached client's status line. Best-effort: a failure
+/// here should never change the exit status of the command that reported it.
+pub fn show_message(text: &str) {
+    let _ = run_tmux(&["display-message", text]);
+}
+
 /// Resolve the session name containing `pane_id`. Returns `None` when tmux
 /// can't find the pane (e.g. it has just been closed).
 pub fn pane_session_name(pane_id: &str) -> Option<String> {

@@ -23,18 +23,20 @@ tmux-agent-sidebar focus prev --scope session
 
 ## Behavior
 
-- `focus next --scope all` jumps to the next running agent across all tmux sessions.
-- `focus prev --scope all` jumps to the previous running agent across all tmux sessions.
-- `focus next --scope session` jumps to the next running agent in the session containing the currently active pane.
+- `focus next --scope all` jumps to the next agent pane across all tmux sessions.
+- `focus prev --scope all` jumps to the previous agent pane across all tmux sessions.
+- `focus next --scope session` jumps to the next agent pane in the session containing the currently active pane.
 - `focus prev --scope session` does the same in reverse.
 - Navigation wraps at the start and end of the eligible pane list.
-- If there are no eligible running agents, the command exits quietly.
-- If the only eligible running agent is the current pane, the command exits quietly.
+- If the only eligible agent pane is the current pane (or there are none), the command writes a short explanation to the tmux status line and exits `0`. A silent no-op is indistinguishable from a broken binary, so the command always reports why nothing moved.
+- If the command cannot resolve an active pane (i.e. it is not running inside tmux), it prints an error to stderr and returns a non-zero exit code.
 - Invalid directions or scopes should return a non-zero exit code and print a concise usage message.
 
 ## Eligible Panes
 
-Eligible panes are panes discovered by the existing tmux query path whose `PaneStatus` is `Running`.
+Eligible panes are every pane discovered by the existing tmux query path, regardless of `PaneStatus`. That path already drops panes with no `@pane_agent` marker and the sidebar's own pane, so what remains is exactly the set of agent panes.
+
+Status is deliberately *not* a filter. Restricting to `Running` made the command a no-op in the common case of one working agent plus several idle ones — and idle or waiting agents are precisely the ones a user wants to jump to.
 
 The command should not depend on the live TUI process or sidebar UI state. This keeps tmux key bindings reliable even when the sidebar pane is closed.
 

@@ -1,4 +1,4 @@
-use crate::tmux::{PaneStatus, SessionInfo};
+use crate::tmux::SessionInfo;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Direction {
@@ -18,7 +18,7 @@ fn select_target_pane(
     direction: Direction,
     scope: Scope,
 ) -> Option<String> {
-    let pane_ids = running_pane_ids(sessions, active_pane_id, scope);
+    let pane_ids = eligible_pane_ids(sessions, active_pane_id, scope);
     if pane_ids.len() <= 1 {
         return None;
     }
@@ -50,7 +50,13 @@ fn active_session_name<'a>(sessions: &'a [SessionInfo], active_pane_id: &str) ->
     None
 }
 
-fn running_pane_ids(sessions: &[SessionInfo], active_pane_id: &str, scope: Scope) -> Vec<String> {
+/// Every agent pane eligible for cycling, in tmux enumeration order.
+///
+/// No status filter is applied: `query_sessions` already drops panes without
+/// an `@pane_agent` marker (and the sidebar's own pane), so everything left
+/// here is an agent pane. Cycling covers idle and waiting agents too — those
+/// are precisely the ones a user wants to jump to.
+fn eligible_pane_ids(sessions: &[SessionInfo], active_pane_id: &str, scope: Scope) -> Vec<String> {
     let scoped_session = match scope {
         Scope::All => None,
         Scope::Session => active_session_name(sessions, active_pane_id),
@@ -61,9 +67,17 @@ fn running_pane_ids(sessions: &[SessionInfo], active_pane_id: &str, scope: Scope
         .filter(|session| scoped_session.is_none_or(|name| session.session_name == name))
         .flat_map(|session| session.windows.iter())
         .flat_map(|window| window.panes.iter())
-        .filter(|pane| pane.status == PaneStatus::Running)
         .map(|pane| pane.pane_id.clone())
         .collect()
+}
+
+/// Status-line text shown when there is nowhere to jump. Without it the
+/// command is a silent no-op, indistinguishable from a broken binary.
+fn no_target_message(scope: Scope) -> &'static str {
+    match scope {
+        Scope::All => "agent-sidebar: no other agent pane to focus",
+        Scope::Session => "agent-sidebar: no other agent pane in this session",
+    }
 }
 
 fn usage() {
@@ -121,10 +135,12 @@ pub fn cmd_focus(args: &[String]) -> i32 {
 
     let sessions = crate::tmux::query_sessions();
     let Some(active_pane_id) = active_pane_id() else {
-        return 0;
+        eprintln!("tmux-agent-sidebar focus: not running inside tmux");
+        return 1;
     };
     let Some(target_pane_id) = select_target_pane(&sessions, &active_pane_id, direction, scope)
     else {
+        crate::tmux::show_message(no_target_message(scope));
         return 0;
     };
 
@@ -135,7 +151,9 @@ pub fn cmd_focus(args: &[String]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tmux::{AgentType, PaneInfo, PermissionMode, WindowInfo, WorktreeMetadata};
+    use crate::tmux::{
+        AgentType, PaneInfo, PaneStatus, PermissionMode, WindowInfo, WorktreeMetadata,
+    };
 
     fn pane(id: &str, active: bool, status: PaneStatus, session_name: &str) -> PaneInfo {
         PaneInfo {
@@ -175,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn next_all_selects_next_running_pane() {
+    fn next_all_selects_next_agent_pane_regardless_of_status() {
         let sessions = vec![session(
             "one",
             vec![
@@ -187,7 +205,7 @@ mod tests {
 
         assert_eq!(
             select_target_pane(&sessions, "%1", Direction::Next, Scope::All),
-            Some("%3".into())
+            Some("%2".into())
         );
     }
 
@@ -241,7 +259,54 @@ mod tests {
     }
 
     #[test]
-    fn single_eligible_running_pane_returns_none() {
+    fn idle_agent_panes_are_eligible() {
+        let sessions = vec![session(
+            "one",
+            vec![
+                pane("%1", true, PaneStatus::Running, "one"),
+                pane("%2", false, PaneStatus::Idle, "one"),
+            ],
+        )];
+
+        assert_eq!(
+            select_target_pane(&sessions, "%1", Direction::Next, Scope::All),
+            Some("%2".into())
+        );
+    }
+
+    #[test]
+    fn every_agent_pane_status_is_eligible() {
+        let sessions = vec![session(
+            "one",
+            vec![
+                pane("%1", true, PaneStatus::Running, "one"),
+                pane("%2", false, PaneStatus::Waiting, "one"),
+                pane("%3", false, PaneStatus::Background, "one"),
+                pane("%4", false, PaneStatus::Error, "one"),
+                pane("%5", false, PaneStatus::Unknown, "one"),
+            ],
+        )];
+
+        assert_eq!(
+            eligible_pane_ids(&sessions, "%1", Scope::All),
+            vec!["%1", "%2", "%3", "%4", "%5"]
+        );
+    }
+
+    #[test]
+    fn no_target_message_names_the_scope() {
+        assert_eq!(
+            no_target_message(Scope::All),
+            "agent-sidebar: no other agent pane to focus"
+        );
+        assert_eq!(
+            no_target_message(Scope::Session),
+            "agent-sidebar: no other agent pane in this session"
+        );
+    }
+
+    #[test]
+    fn single_eligible_agent_pane_returns_none() {
         let sessions = vec![session(
             "one",
             vec![pane("%1", true, PaneStatus::Running, "one")],

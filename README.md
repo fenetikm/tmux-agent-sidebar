@@ -67,7 +67,7 @@ Full walkthroughs: [Claude Code setup](https://hiroppy.github.io/tmux-agent-side
 
 `prefix + e` toggles the sidebar in the current window, `prefix + E` toggles it everywhere.
 
-To jump directly between running agents from tmux bindings:
+To jump directly between agent panes from tmux bindings:
 
 ```tmux
 bind-key C-n run-shell '"#{@agent_sidebar_bin}" focus next --scope all'
@@ -78,7 +78,7 @@ bind-key M-p run-shell '"#{@agent_sidebar_bin}" focus prev --scope session'
 
 `@agent_sidebar_bin` is set by the plugin to the binary it loaded, so these bindings need no `PATH` setup. Add them after the plugin is loaded.
 
-`--scope all` navigates every running agent across tmux. `--scope session` stays within the session containing the currently active pane.
+`--scope all` navigates every agent pane across tmux, whatever its status. `--scope session` stays within the session containing the currently active pane. When there is no other agent pane to jump to, the reason is shown on the tmux status line.
 
 To exclude sessions from automatic sidebar creation:
 
