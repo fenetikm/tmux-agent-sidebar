@@ -156,6 +156,59 @@ fn select_last_notified_pane(eligible: &[String], stamps: &[(String, u64)]) -> O
     best.map(|(pane_id, _)| pane_id.clone())
 }
 
+/// The `list-panes -F` format for one stamp key: the pane id paired with
+/// that key's value.
+///
+/// One key per query, because a stamp value is itself
+/// `timestamp|fingerprint` — see [`parse_stamp_lines`] for why a line
+/// carrying several stamps cannot be split back apart.
+///
+/// These keys are deliberately absent from `tmux::query_sessions`' shared
+/// `pane_format()`: its 28 fields are kept in lock-step with
+/// hand-maintained index constants and the TUI has no use for notify
+/// stamps, so `focus notification` pays for its own queries instead of
+/// imposing maintenance cost on every consumer.
+fn stamp_format(key: &str) -> String {
+    format!("#{{q:pane_id}}|#{{q:{key}}}")
+}
+
+/// Every pane's notification stamps, one query per stamp key. A pane that
+/// has fired several kinds of notification contributes one entry per kind;
+/// [`select_last_notified_pane`] reduces those to the newest. A failed
+/// query yields no entries, which reads the same as "nothing notified".
+fn notification_stamps() -> Vec<(String, u64)> {
+    desktop_notification::stamp_option_keys()
+        .iter()
+        .flat_map(|key| {
+            let format = stamp_format(key);
+            let raw =
+                crate::tmux::run_tmux(&["list-panes", "-a", "-F", &format]).unwrap_or_default();
+            parse_stamp_lines(&raw)
+        })
+        .collect()
+}
+
+/// Jump to the pane whose notification fired most recently, reporting on
+/// the tmux status line when there is nowhere to go.
+fn focus_last_notification(
+    sessions: &[SessionInfo],
+    active_pane_id: &str,
+    active_session: Option<&str>,
+    scope: Scope,
+) -> i32 {
+    let eligible = eligible_pane_ids(sessions, active_session, scope);
+    let stamps = notification_stamps();
+
+    match select_last_notified_pane(&eligible, &stamps) {
+        None => crate::tmux::show_message(no_notification_message(scope)),
+        Some(pane_id) if pane_id == active_pane_id => {
+            crate::tmux::show_message(ALREADY_ON_NOTIFIED_PANE)
+        }
+        Some(pane_id) => crate::tmux::select_pane(&pane_id),
+    }
+    0
+}
+
 /// Status-line text shown when there is nowhere to jump. Without it the
 /// command is a silent no-op, indistinguishable from a broken binary.
 fn no_target_message(scope: Scope) -> &'static str {
@@ -233,15 +286,6 @@ pub fn cmd_focus(args: &[String]) -> i32 {
             return 1;
         }
     };
-    let direction = match target {
-        Target::Cycle(direction) => direction,
-        // Wired to tmux in the next commit. Parsing lands first so the
-        // argument surface and its tests are reviewable on their own.
-        Target::Notification => {
-            crate::tmux::show_message(no_notification_message(scope));
-            return 0;
-        }
-    };
 
     let sessions = crate::tmux::query_sessions();
     let Some(active_pane_id) = active_pane_id() else {
@@ -249,6 +293,19 @@ pub fn cmd_focus(args: &[String]) -> i32 {
         return 1;
     };
     let active_session = crate::tmux::pane_session_name(&active_pane_id);
+
+    let direction = match target {
+        Target::Cycle(direction) => direction,
+        Target::Notification => {
+            return focus_last_notification(
+                &sessions,
+                &active_pane_id,
+                active_session.as_deref(),
+                scope,
+            );
+        }
+    };
+
     let Some(target_pane_id) = select_target_pane(
         &sessions,
         &active_pane_id,
@@ -702,5 +759,27 @@ mod tests {
             ALREADY_ON_NOTIFIED_PANE,
             no_notification_message(Scope::All)
         );
+    }
+
+    #[test]
+    fn stamp_format_pairs_the_pane_id_with_one_quoted_key() {
+        assert_eq!(
+            stamp_format("@pane_os_notify_task_completed"),
+            "#{q:pane_id}|#{q:@pane_os_notify_task_completed}"
+        );
+    }
+
+    #[test]
+    fn stamp_format_is_built_for_every_exposed_stamp_key() {
+        // Guards against the query drifting from the notification kinds:
+        // a new kind must show up here without touching this module.
+        let formats: Vec<String> = desktop_notification::stamp_option_keys()
+            .iter()
+            .map(|key| stamp_format(key))
+            .collect();
+        assert_eq!(formats.len(), 3);
+        for format in &formats {
+            assert!(format.starts_with("#{q:pane_id}|#{q:@pane_os_notify_"));
+        }
     }
 }
