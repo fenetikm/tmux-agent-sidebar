@@ -18,6 +18,17 @@ pub enum DesktopNotificationKind {
     PermissionRequired,
 }
 
+impl DesktopNotificationKind {
+    /// Every kind that writes a notification stamp. `focus notification`
+    /// walks this list to find the newest stamp on a pane, so a new kind
+    /// becomes visible to it automatically.
+    pub const ALL: [Self; 3] = [
+        Self::TaskCompleted,
+        Self::TaskFailed,
+        Self::PermissionRequired,
+    ];
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DesktopNotificationEvent {
     Stop,
@@ -214,6 +225,21 @@ fn stamp_option_key(kind: DesktopNotificationKind) -> &'static str {
         DesktopNotificationKind::TaskFailed => tmux::PANE_OS_NOTIFY_TASK_FAILED,
         DesktopNotificationKind::PermissionRequired => tmux::PANE_OS_NOTIFY_PERMISSION_REQUIRED,
     }
+}
+
+/// The pane options carrying notification stamps, one per
+/// [`DesktopNotificationKind`]. Read by `focus notification` to find the
+/// most recently notified pane.
+pub fn stamp_option_keys() -> [&'static str; 3] {
+    DesktopNotificationKind::ALL.map(stamp_option_key)
+}
+
+/// Extract the epoch-seconds timestamp from a raw stamp option value
+/// (`"<seconds>|<fingerprint>"`). Returns `None` for empty, malformed, or
+/// non-numeric values so a corrupt or unset pane option is skipped rather
+/// than treated as an ancient notification.
+pub fn stamp_timestamp(raw: &str) -> Option<u64> {
+    parse_stamp(raw).map(|stamp| stamp.timestamp)
 }
 
 fn encode_stamp(timestamp: u64, fingerprint: &str) -> String {
@@ -551,5 +577,34 @@ mod tests {
             DesktopNotificationKind::TaskCompleted,
             None,
         ));
+    }
+
+    #[test]
+    fn stamp_option_keys_covers_every_notification_kind() {
+        assert_eq!(
+            stamp_option_keys(),
+            [
+                tmux::PANE_OS_NOTIFY_TASK_COMPLETED,
+                tmux::PANE_OS_NOTIFY_TASK_FAILED,
+                tmux::PANE_OS_NOTIFY_PERMISSION_REQUIRED,
+            ]
+        );
+    }
+
+    #[test]
+    fn stamp_timestamp_reads_the_leading_seconds_field() {
+        // Real stored shape: "<seconds>|<run_id>:<fingerprint>".
+        assert_eq!(
+            stamp_timestamp("1700000123|1699999999:notification"),
+            Some(1_700_000_123)
+        );
+    }
+
+    #[test]
+    fn stamp_timestamp_rejects_unusable_values() {
+        assert_eq!(stamp_timestamp(""), None);
+        assert_eq!(stamp_timestamp("no-separator"), None);
+        assert_eq!(stamp_timestamp("notanumber|fingerprint"), None);
+        assert_eq!(stamp_timestamp("|fingerprint"), None);
     }
 }
