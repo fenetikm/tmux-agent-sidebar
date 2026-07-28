@@ -47,10 +47,10 @@ tmux show -t "$pane_id" -pv @pane_agent
 
 ## Agent focus command
 
-Use `focus` from tmux bindings or scripts to jump to the next or previous agent pane:
+Use `focus` from tmux bindings or scripts to jump between agent panes:
 
 ```bash
-tmux-agent-sidebar focus <next|prev> [--scope <all|session>]
+tmux-agent-sidebar focus <next|prev|notification> [--scope <all|session>]
 ```
 
 Examples:
@@ -60,6 +60,7 @@ bind-key C-n run-shell '"#{@agent_sidebar_bin}" focus next --scope all'
 bind-key C-p run-shell '"#{@agent_sidebar_bin}" focus prev --scope all'
 bind-key M-n run-shell '"#{@agent_sidebar_bin}" focus next --scope session'
 bind-key M-p run-shell '"#{@agent_sidebar_bin}" focus prev --scope session'
+bind-key M-l run-shell '"#{@agent_sidebar_bin}" focus notification'
 ```
 
 The plugin sets `@agent_sidebar_bin` to the absolute path of the binary it loaded, so bindings resolve it at press time and do not depend on the binary being on your `PATH`. Define these after the plugin is loaded in your `tmux.conf`.
@@ -69,6 +70,14 @@ The plugin sets `@agent_sidebar_bin` to the absolute path of the binary it loade
 The command wraps at list boundaries. From a pane that isn't an agent pane — a shell, an editor, the sidebar — `next` enters the list at the first agent pane and `prev` at the last, so a single agent pane is still reachable in one press.
 
 When the jump would land on the pane you are already in, the command writes a short note to the tmux status line and exits `0`; when it is not running inside tmux at all it prints an error to stderr and exits non-zero.
+
+### The notification target
+
+`focus notification` jumps to the agent pane whose desktop notification fired most recently, rather than walking the list. It reads the same `@pane_os_notify_task_completed`, `@pane_os_notify_task_failed`, and `@pane_os_notify_permission_required` pane options that the notification pipeline writes, so it works with the sidebar closed and survives a sidebar restart.
+
+Because those options are only written when a desktop notification is actually delivered, the command follows your notification settings — an event suppressed by `@sidebar_notifications` or excluded from `@sidebar_notifications_events` leaves no trace for it to find. Repeat notifications with the same fingerprint inside the 120-second cooldown do not refresh the timestamp either.
+
+When no eligible pane has ever notified, or when the most recent notification came from the pane you are already in, the command writes a note to the tmux status line and exits `0`.
 
 ## Example status line snippet
 

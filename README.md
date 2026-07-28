@@ -74,11 +74,14 @@ bind-key C-n run-shell '"#{@agent_sidebar_bin}" focus next --scope all'
 bind-key C-p run-shell '"#{@agent_sidebar_bin}" focus prev --scope all'
 bind-key M-n run-shell '"#{@agent_sidebar_bin}" focus next --scope session'
 bind-key M-p run-shell '"#{@agent_sidebar_bin}" focus prev --scope session'
+bind-key M-l run-shell '"#{@agent_sidebar_bin}" focus notification'
 ```
 
 `@agent_sidebar_bin` is set by the plugin to the binary it loaded, so these bindings need no `PATH` setup. Add them after the plugin is loaded.
 
 `--scope all` navigates every agent pane across tmux, whatever its status. `--scope session` stays within the session containing the currently active pane. When there is no other agent pane to jump to, the reason is shown on the tmux status line.
+
+`focus notification` jumps to the pane whose desktop notification fired most recently, across every session unless you add `--scope session`. It follows your notification settings: an event that never produced a desktop notification is invisible to it.
 
 To exclude sessions from automatic sidebar creation:
 
