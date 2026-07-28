@@ -75,6 +75,7 @@ bind-key C-p run-shell '"#{@agent_sidebar_bin}" focus prev --scope all'
 bind-key M-n run-shell '"#{@agent_sidebar_bin}" focus next --scope session'
 bind-key M-p run-shell '"#{@agent_sidebar_bin}" focus prev --scope session'
 bind-key M-l run-shell '"#{@agent_sidebar_bin}" focus notification'
+bind-key M-L run-shell '"#{@agent_sidebar_bin}" focus notification --scope session'
 ```
 
 `@agent_sidebar_bin` is set by the plugin to the binary it loaded, so these bindings need no `PATH` setup. Add them after the plugin is loaded.

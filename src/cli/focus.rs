@@ -111,7 +111,6 @@ fn parse_stamp_lines(raw: &str) -> Vec<(String, u64)> {
     raw.lines()
         .filter_map(|line| {
             let (pane_id, stamp) = line.split_once('|')?;
-            let pane_id = pane_id.trim();
             if pane_id.is_empty() {
                 return None;
             }
@@ -168,8 +167,21 @@ fn select_last_notified_pane(eligible: &[String], stamps: &[(String, u64)]) -> O
 /// hand-maintained index constants and the TUI has no use for notify
 /// stamps, so `focus notification` pays for its own queries instead of
 /// imposing maintenance cost on every consumer.
+///
+/// Deliberately unquoted — no `#{q:...}`. That modifier shell-escapes both
+/// `|` and `%`, which would turn a real line into
+/// `\%34|1785210882\|1785210318192:stop`: the escaped `|` breaks
+/// `parse_stamp_lines`' first-`|` split (the timestamp fails to parse) and
+/// the escaped `%` in the pane id would never match an id from
+/// `query_sessions` anyway. `src/tmux/query.rs` can use `#{q:...}` safely
+/// only because it unescapes the result afterwards via `split_tmux_fields`;
+/// this path does not, so omitting the quoting here is required, not an
+/// oversight. It stays safe without quoting because there are exactly two
+/// fields split at the *first* `|`, a pane id never contains `|`, and
+/// `normalize_fingerprint` (in `desktop_notification.rs`) already replaces
+/// `|`, `\n`, and `\r` in fingerprints with spaces.
 fn stamp_format(key: &str) -> String {
-    format!("#{{q:pane_id}}|#{{q:{key}}}")
+    format!("#{{pane_id}}|#{{{key}}}")
 }
 
 /// Every pane's notification stamps, one query per stamp key. A pane that
@@ -643,6 +655,29 @@ mod tests {
         );
     }
 
+    #[test]
+    fn parse_stamp_lines_parses_a_real_unquoted_tmux_line() {
+        // Captured from a live tmux 3.6a server via stamp_format's
+        // unquoted #{pane_id}|#{<key>} shape.
+        let raw = "%34|1785210882|1785210318192:stop\n";
+        assert_eq!(
+            parse_stamp_lines(raw),
+            vec![("%34".to_string(), 1_785_210_882)]
+        );
+    }
+
+    #[test]
+    fn parse_stamp_lines_rejects_the_q_quoted_shape_that_caused_the_original_bug() {
+        // This is what #{q:pane_id}|#{q:<key>} actually produces: q:
+        // backslash-escapes both `|` and `%`, so the first-`|` split hands
+        // "1785210882\|1785210318192:stop" to stamp_timestamp, which then
+        // splits at the *escaped* `|` and fails to parse "1785210882\\" as
+        // a u64. This must NOT yield a timestamp for pane %34 — if it ever
+        // does, something re-quoted the format.
+        let raw = "\\%34|1785210882\\|1785210318192:stop\n";
+        assert_eq!(parse_stamp_lines(raw), Vec::new());
+    }
+
     fn ids(values: &[&str]) -> Vec<String> {
         values.iter().map(|v| v.to_string()).collect()
     }
@@ -762,24 +797,26 @@ mod tests {
     }
 
     #[test]
-    fn stamp_format_pairs_the_pane_id_with_one_quoted_key() {
-        assert_eq!(
-            stamp_format("@pane_os_notify_task_completed"),
-            "#{q:pane_id}|#{q:@pane_os_notify_task_completed}"
-        );
+    fn stamp_format_pairs_the_pane_id_with_an_unquoted_key() {
+        let format = stamp_format("@pane_os_notify_task_completed");
+        assert_eq!(format, "#{pane_id}|#{@pane_os_notify_task_completed}");
+        // #{q:...} escapes both `|` and `%`, which breaks the first-`|`
+        // split in parse_stamp_lines and the pane-id match in
+        // select_last_notified_pane. If this ever contains "q:" again,
+        // the feature is broken — see stamp_format's doc comment.
+        assert!(!format.contains("q:"));
     }
 
     #[test]
     fn stamp_format_is_built_for_every_exposed_stamp_key() {
-        // Guards against the query drifting from the notification kinds:
-        // a new kind must show up here without touching this module.
         let formats: Vec<String> = desktop_notification::stamp_option_keys()
             .iter()
             .map(|key| stamp_format(key))
             .collect();
         assert_eq!(formats.len(), 3);
         for format in &formats {
-            assert!(format.starts_with("#{q:pane_id}|#{q:@pane_os_notify_"));
+            assert!(format.starts_with("#{pane_id}|#{@pane_os_notify_"));
+            assert!(!format.contains("q:"));
         }
     }
 }

@@ -61,6 +61,7 @@ bind-key C-p run-shell '"#{@agent_sidebar_bin}" focus prev --scope all'
 bind-key M-n run-shell '"#{@agent_sidebar_bin}" focus next --scope session'
 bind-key M-p run-shell '"#{@agent_sidebar_bin}" focus prev --scope session'
 bind-key M-l run-shell '"#{@agent_sidebar_bin}" focus notification'
+bind-key M-L run-shell '"#{@agent_sidebar_bin}" focus notification --scope session'
 ```
 
 The plugin sets `@agent_sidebar_bin` to the absolute path of the binary it loaded, so bindings resolve it at press time and do not depend on the binary being on your `PATH`. Define these after the plugin is loaded in your `tmux.conf`.

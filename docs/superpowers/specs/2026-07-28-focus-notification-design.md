@@ -52,7 +52,7 @@ Because these live in tmux pane options, the command works with the sidebar TUI 
 
 ### Reading the stamps
 
-Read them with dedicated `tmux list-panes -a -F` calls issued **only** on the `notification` path — **one call per stamp key**, each using the two-field format `#{q:pane_id}|#{q:<key>}`.
+Read them with dedicated `tmux list-panes -a -F` calls issued **only** on the `notification` path — **one call per stamp key**, each using the two-field format `#{pane_id}|#{<key>}`.
 
 One call per key rather than one call listing all three keys, because the stamp encoding already spends the `|` separator. A stamp value is `timestamp|fingerprint`, and `normalize_fingerprint` guarantees the fingerprint itself contains no `|`. So a two-field line splits unambiguously at its first `|`: everything before is the pane id (which never contains `|`), everything after is exactly one stamp value that `stamp_timestamp` can parse. Packing three stamp values into one line loses that property — after splitting on `|` no field carries a separator any more, so the values can't be recovered, and picking the numeric-looking fields would mistake an all-digit fingerprint for a timestamp.
 
@@ -60,7 +60,7 @@ The keys are deliberately not added to `pane_format()` in `src/tmux/query.rs`. T
 
 The cost of the chosen approach is three subprocess calls per `focus notification` invocation. That is not on any hot path — it runs once per keypress, and `tmux::select_pane` already makes three calls of its own.
 
-Fields are quoted with `#{q:...}` like the existing format.
+Fields are deliberately *not* quoted with `#{q:...}`. That modifier escapes both `|` and `%`, which would corrupt both halves of the line: the escaped `|` breaks the first-`|` split above, and an escaped `%` in the pane id would never match an id from `query_sessions`. `src/tmux/query.rs` can use `#{q:...}` safely only because it unescapes the result afterwards via `split_tmux_fields`; this path does not.
 
 ## Selection
 

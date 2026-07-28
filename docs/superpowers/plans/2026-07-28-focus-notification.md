@@ -24,7 +24,7 @@
 - Do **not** add notify-stamp fields to `pane_format()` in `src/tmux/query.rs`. That format's 28 fields are kept in lock-step with hand-maintained index constants.
 - **The stamp query issues one `list-panes` call per stamp key, with a two-field format.** A stamp value is itself `timestamp|fingerprint`, so a line carrying more than one stamp cannot be split back apart — see Task 2's rationale. Do not "optimise" this into a single call.
 - Cycling behaviour (`next` / `prev`) must not change. `Direction`, `select_target_pane`, `eligible_pane_ids`, and `no_target_message` keep their current semantics.
-- All tmux format fields are quoted with `#{q:...}`, matching `src/tmux/query.rs`.
+- The stamp query format is deliberately *unquoted* — `#{pane_id}|#{<key>}`, not `#{q:pane_id}|#{q:<key>}`. `#{q:...}` escapes both `|` and `%`, which breaks the two-field split and the pane-id match; `src/tmux/query.rs` can use it only because it unescapes afterwards via `split_tmux_fields`, and this path does not.
 - Documentation is English (project writing guideline).
 - Keybinding examples use `'"#{@agent_sidebar_bin}" focus …'` — double quotes inside single quotes, matching README line 73.
 

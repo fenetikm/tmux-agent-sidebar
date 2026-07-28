@@ -20,8 +20,10 @@ pub enum DesktopNotificationKind {
 
 impl DesktopNotificationKind {
     /// Every kind that writes a notification stamp. `focus notification`
-    /// walks this list to find the newest stamp on a pane, so a new kind
-    /// becomes visible to it automatically.
+    /// walks this list to find the newest stamp on a pane. This is a
+    /// hand-written literal, not derived from the enum — when adding a
+    /// variant, add it here too, or it stays invisible to `focus
+    /// notification` with no test to catch the omission.
     pub const ALL: [Self; 3] = [
         Self::TaskCompleted,
         Self::TaskFailed,
