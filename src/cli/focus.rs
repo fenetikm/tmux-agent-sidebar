@@ -7,6 +7,15 @@ enum Direction {
     Prev,
 }
 
+/// What the user asked `focus` to jump to. `Cycle` is the original
+/// next/prev walk over the eligible pane list; `Notification` jumps
+/// straight to the most recently notified pane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Target {
+    Cycle(Direction),
+    Notification,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Scope {
     All,
@@ -172,21 +181,22 @@ fn no_notification_message(scope: Scope) -> &'static str {
 const ALREADY_ON_NOTIFIED_PANE: &str = "agent-sidebar: already on the last notified pane";
 
 fn usage() {
-    eprintln!("usage: tmux-agent-sidebar focus <next|prev> [--scope <all|session>]");
+    eprintln!("usage: tmux-agent-sidebar focus <next|prev|notification> [--scope <all|session>]");
 }
 
-fn parse_direction(value: &str) -> Option<Direction> {
+fn parse_target(value: &str) -> Option<Target> {
     match value {
-        "next" => Some(Direction::Next),
-        "prev" | "previous" => Some(Direction::Prev),
+        "next" => Some(Target::Cycle(Direction::Next)),
+        "prev" | "previous" => Some(Target::Cycle(Direction::Prev)),
+        "notification" => Some(Target::Notification),
         _ => None,
     }
 }
 
-fn parse_args(args: &[String]) -> Result<(Direction, Scope), ()> {
-    let direction = args
+fn parse_args(args: &[String]) -> Result<(Target, Scope), ()> {
+    let target = args
         .first()
-        .and_then(|value| parse_direction(value))
+        .and_then(|value| parse_target(value))
         .ok_or(())?;
     let mut scope = Scope::All;
     let mut index = 1;
@@ -206,7 +216,7 @@ fn parse_args(args: &[String]) -> Result<(Direction, Scope), ()> {
         }
     }
 
-    Ok((direction, scope))
+    Ok((target, scope))
 }
 
 fn active_pane_id() -> Option<String> {
@@ -216,11 +226,20 @@ fn active_pane_id() -> Option<String> {
 }
 
 pub fn cmd_focus(args: &[String]) -> i32 {
-    let (direction, scope) = match parse_args(args) {
+    let (target, scope) = match parse_args(args) {
         Ok(parsed) => parsed,
         Err(()) => {
             usage();
             return 1;
+        }
+    };
+    let direction = match target {
+        Target::Cycle(direction) => direction,
+        // Wired to tmux in the next commit. Parsing lands first so the
+        // argument surface and its tests are reviewable on their own.
+        Target::Notification => {
+            crate::tmux::show_message(no_notification_message(scope));
+            return 0;
         }
     };
 
@@ -479,7 +498,7 @@ mod tests {
     fn parse_args_defaults_to_all_scope() {
         assert_eq!(
             parse_args(&["next".into()]),
-            Ok((Direction::Next, Scope::All))
+            Ok((Target::Cycle(Direction::Next), Scope::All))
         );
     }
 
@@ -487,14 +506,31 @@ mod tests {
     fn parse_args_accepts_session_scope_and_previous_alias() {
         assert_eq!(
             parse_args(&["previous".into(), "--scope".into(), "session".into()]),
-            Ok((Direction::Prev, Scope::Session))
+            Ok((Target::Cycle(Direction::Prev), Scope::Session))
         );
     }
 
     #[test]
-    fn parse_args_rejects_invalid_scope() {
+    fn parse_args_accepts_the_notification_target() {
         assert_eq!(
-            parse_args(&["next".into(), "--scope".into(), "window".into()]),
+            parse_args(&["notification".into()]),
+            Ok((Target::Notification, Scope::All))
+        );
+        assert_eq!(
+            parse_args(&["notification".into(), "--scope".into(), "session".into()]),
+            Ok((Target::Notification, Scope::Session))
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_last_as_an_alias_for_notification() {
+        assert_eq!(parse_args(&["last".into()]), Err(()));
+    }
+
+    #[test]
+    fn parse_args_rejects_an_invalid_scope_for_the_notification_target() {
+        assert_eq!(
+            parse_args(&["notification".into(), "--scope".into(), "window".into()]),
             Err(())
         );
     }
