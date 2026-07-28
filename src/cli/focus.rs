@@ -114,6 +114,39 @@ fn parse_stamp_lines(raw: &str) -> Vec<(String, u64)> {
         .collect()
 }
 
+/// The candidate pane whose newest notification stamp is the most recent,
+/// or `None` when no candidate has ever notified.
+///
+/// `stamps` is the concatenation of one query per stamp key, so a pane may
+/// appear several times — once per notification kind it has fired. A
+/// pane's recency is the maximum over its own entries.
+///
+/// Unlike [`select_target_pane`], the active pane is deliberately *not*
+/// filtered out. Whether the newest notification came from the pane the
+/// user is already on is a meaningful distinction the caller reports on
+/// rather than something to hide.
+///
+/// Ties resolve to the earlier pane in `eligible` (tmux enumeration
+/// order). The strict `>` is what enforces that: `max_by_key` would keep
+/// the *last* equal maximum instead.
+fn select_last_notified_pane(eligible: &[String], stamps: &[(String, u64)]) -> Option<String> {
+    let mut best: Option<(&String, u64)> = None;
+    for pane_id in eligible {
+        let Some(timestamp) = stamps
+            .iter()
+            .filter(|(id, _)| id == pane_id)
+            .map(|(_, timestamp)| *timestamp)
+            .max()
+        else {
+            continue;
+        };
+        if best.is_none_or(|(_, best_timestamp)| timestamp > best_timestamp) {
+            best = Some((pane_id, timestamp));
+        }
+    }
+    best.map(|(pane_id, _)| pane_id.clone())
+}
+
 /// Status-line text shown when there is nowhere to jump. Without it the
 /// command is a silent no-op, indistinguishable from a broken binary.
 fn no_target_message(scope: Scope) -> &'static str {
@@ -122,6 +155,21 @@ fn no_target_message(scope: Scope) -> &'static str {
         Scope::Session => "agent-sidebar: no other agent pane in this session",
     }
 }
+
+/// Status-line text when no candidate pane has ever fired a notification.
+/// Mirrors [`no_target_message`]: a silent no-op is indistinguishable from
+/// a broken binary.
+fn no_notification_message(scope: Scope) -> &'static str {
+    match scope {
+        Scope::All => "agent-sidebar: no recent agent notification to focus",
+        Scope::Session => "agent-sidebar: no recent agent notification in this session",
+    }
+}
+
+/// Status-line text when the most recent notification came from the pane
+/// the cursor is already on. Distinct from [`no_notification_message`] so
+/// the user can tell "nothing has notified" from "you are already there".
+const ALREADY_ON_NOTIFIED_PANE: &str = "agent-sidebar: already on the last notified pane";
 
 fn usage() {
     eprintln!("usage: tmux-agent-sidebar focus <next|prev> [--scope <all|session>]");
@@ -499,6 +547,124 @@ mod tests {
         assert_eq!(
             parse_stamp_lines(raw),
             vec![("%1".to_string(), 1_700_000_800)]
+        );
+    }
+
+    fn ids(values: &[&str]) -> Vec<String> {
+        values.iter().map(|v| v.to_string()).collect()
+    }
+
+    #[test]
+    fn last_notified_picks_the_highest_timestamp() {
+        let stamps = vec![
+            ("%1".to_string(), 100),
+            ("%2".to_string(), 300),
+            ("%3".to_string(), 200),
+        ];
+        assert_eq!(
+            select_last_notified_pane(&ids(&["%1", "%2", "%3"]), &stamps),
+            Some("%2".into())
+        );
+    }
+
+    #[test]
+    fn last_notified_takes_the_newest_of_several_entries_for_one_pane() {
+        // The three per-key queries are concatenated, so a pane that has
+        // fired more than one kind of notification appears more than once.
+        let stamps = vec![
+            ("%1".to_string(), 100),
+            ("%2".to_string(), 200),
+            ("%1".to_string(), 400),
+            ("%2".to_string(), 300),
+        ];
+        assert_eq!(
+            select_last_notified_pane(&ids(&["%1", "%2"]), &stamps),
+            Some("%1".into())
+        );
+    }
+
+    #[test]
+    fn last_notified_ignores_stamps_for_panes_outside_the_candidate_list() {
+        // %9 is newer but is not an agent pane (or is out of scope).
+        let stamps = vec![("%1".to_string(), 100), ("%9".to_string(), 999)];
+        assert_eq!(
+            select_last_notified_pane(&ids(&["%1"]), &stamps),
+            Some("%1".into())
+        );
+    }
+
+    #[test]
+    fn last_notified_returns_none_when_no_candidate_has_a_stamp() {
+        let stamps = vec![("%9".to_string(), 999)];
+        assert_eq!(
+            select_last_notified_pane(&ids(&["%1", "%2"]), &stamps),
+            None
+        );
+    }
+
+    #[test]
+    fn last_notified_returns_none_for_an_empty_candidate_list() {
+        let stamps = vec![("%1".to_string(), 100)];
+        assert_eq!(select_last_notified_pane(&[], &stamps), None);
+    }
+
+    #[test]
+    fn last_notified_breaks_ties_in_enumeration_order() {
+        let stamps = vec![("%2".to_string(), 500), ("%1".to_string(), 500)];
+        // Candidate order, not stamp order, decides the winner.
+        assert_eq!(
+            select_last_notified_pane(&ids(&["%1", "%2"]), &stamps),
+            Some("%1".into())
+        );
+    }
+
+    #[test]
+    fn last_notified_can_resolve_to_the_active_pane() {
+        // The active pane is not filtered out — cmd_focus reports that case.
+        let stamps = vec![("%1".to_string(), 900), ("%2".to_string(), 100)];
+        assert_eq!(
+            select_last_notified_pane(&ids(&["%1", "%2"]), &stamps),
+            Some("%1".into())
+        );
+    }
+
+    #[test]
+    fn session_scope_prefers_an_older_notification_inside_the_active_session() {
+        let sessions = vec![
+            session("one", vec![pane("%1", true, PaneStatus::Idle, "one")]),
+            session("two", vec![pane("%2", false, PaneStatus::Idle, "two")]),
+        ];
+        // %2 in session "two" is newer, but the cursor is in session "one".
+        let stamps = vec![("%1".to_string(), 100), ("%2".to_string(), 999)];
+        let eligible = eligible_pane_ids(&sessions, Some("one"), Scope::Session);
+
+        assert_eq!(
+            select_last_notified_pane(&eligible, &stamps),
+            Some("%1".into())
+        );
+    }
+
+    #[test]
+    fn no_notification_message_names_the_scope() {
+        assert_eq!(
+            no_notification_message(Scope::All),
+            "agent-sidebar: no recent agent notification to focus"
+        );
+        assert_eq!(
+            no_notification_message(Scope::Session),
+            "agent-sidebar: no recent agent notification in this session"
+        );
+    }
+
+    #[test]
+    fn already_on_notified_pane_message_is_distinct() {
+        assert_eq!(
+            ALREADY_ON_NOTIFIED_PANE,
+            "agent-sidebar: already on the last notified pane"
+        );
+        assert_ne!(
+            ALREADY_ON_NOTIFIED_PANE,
+            no_notification_message(Scope::All)
         );
     }
 }
