@@ -1,3 +1,4 @@
+use crate::desktop_notification;
 use crate::tmux::SessionInfo;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,6 +83,34 @@ fn eligible_pane_ids(
         .flat_map(|session| session.windows.iter())
         .flat_map(|window| window.panes.iter())
         .map(|pane| pane.pane_id.clone())
+        .collect()
+}
+
+/// Parse one stamp query's output into `(pane_id, timestamp)` pairs.
+///
+/// Each line is `pane_id|<stamp value>` for a single stamp key, and a stamp
+/// value is itself `timestamp|fingerprint`. Splitting at the *first* `|`
+/// is therefore exact: a pane id never contains `|`, and
+/// `normalize_fingerprint` strips `|` from fingerprints, so the remainder
+/// is one whole stamp value with its own separator intact.
+///
+/// Lines without a pane id, and panes whose option is unset or corrupt,
+/// are omitted rather than reported with a zero timestamp: a pane that has
+/// never notified must never win the comparison in
+/// [`select_last_notified_pane`].
+fn parse_stamp_lines(raw: &str) -> Vec<(String, u64)> {
+    raw.lines()
+        .filter_map(|line| {
+            let (pane_id, stamp) = line.split_once('|')?;
+            let pane_id = pane_id.trim();
+            if pane_id.is_empty() {
+                return None;
+            }
+            Some((
+                pane_id.to_string(),
+                desktop_notification::stamp_timestamp(stamp)?,
+            ))
+        })
         .collect()
 }
 
@@ -419,6 +448,57 @@ mod tests {
         assert_eq!(
             parse_args(&["next".into(), "--scope".into(), "window".into()]),
             Err(())
+        );
+    }
+
+    #[test]
+    fn parse_stamp_lines_reads_a_pane_id_and_its_stamp() {
+        let raw = "%1|1700000300|1700000000:notification\n%2|1700000100|1700000000:stop\n";
+        assert_eq!(
+            parse_stamp_lines(raw),
+            vec![
+                ("%1".to_string(), 1_700_000_300),
+                ("%2".to_string(), 1_700_000_100)
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_stamp_lines_skips_panes_whose_option_is_unset() {
+        // tmux emits an empty field for an option that was never set.
+        let raw = "%1|\n%2|1700000900|1700000000:stop\n";
+        assert_eq!(
+            parse_stamp_lines(raw),
+            vec![("%2".to_string(), 1_700_000_900)]
+        );
+    }
+
+    #[test]
+    fn parse_stamp_lines_skips_malformed_stamps() {
+        let raw = "%1|nonsense\n%2|notanumber|fingerprint\n%3|1700000700|fp\n";
+        assert_eq!(
+            parse_stamp_lines(raw),
+            vec![("%3".to_string(), 1_700_000_700)]
+        );
+    }
+
+    #[test]
+    fn parse_stamp_lines_ignores_blank_and_id_less_lines() {
+        let raw = "\n|1700000500|fp\n%4|1700000700|fp\n";
+        assert_eq!(
+            parse_stamp_lines(raw),
+            vec![("%4".to_string(), 1_700_000_700)]
+        );
+    }
+
+    #[test]
+    fn parse_stamp_lines_keeps_a_fingerprint_containing_a_colon() {
+        // Fingerprints are run-scoped ("<run_id>:<suffix>") and free text
+        // beyond that; only `|` is normalised away.
+        let raw = "%1|1700000800|1700000000:Permission required: write\n";
+        assert_eq!(
+            parse_stamp_lines(raw),
+            vec![("%1".to_string(), 1_700_000_800)]
         );
     }
 }
