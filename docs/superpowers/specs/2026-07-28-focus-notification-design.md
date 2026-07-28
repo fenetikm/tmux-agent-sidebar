@@ -52,11 +52,15 @@ Because these live in tmux pane options, the command works with the sidebar TUI 
 
 ### Reading the stamps
 
-Read them with a dedicated `tmux list-panes -a -F` call issued **only** on the `notification` path, using a four-field format: `pane_id` plus the three stamp keys.
+Read them with dedicated `tmux list-panes -a -F` calls issued **only** on the `notification` path — **one call per stamp key**, each using the two-field format `#{q:pane_id}|#{q:<key>}`.
 
-They are deliberately not added to `pane_format()` in `src/tmux/query.rs`. That format has 28 fields kept in lock-step with hand-maintained index constants and a `MIN_FIELDS` guard, and the TUI has no use for notify stamps. Extending it would impose maintenance cost on every consumer to serve one CLI subcommand. The cost of the chosen approach is one extra subprocess call per `focus notification` invocation, which is not on any hot path.
+One call per key rather than one call listing all three keys, because the stamp encoding already spends the `|` separator. A stamp value is `timestamp|fingerprint`, and `normalize_fingerprint` guarantees the fingerprint itself contains no `|`. So a two-field line splits unambiguously at its first `|`: everything before is the pane id (which never contains `|`), everything after is exactly one stamp value that `stamp_timestamp` can parse. Packing three stamp values into one line loses that property — after splitting on `|` no field carries a separator any more, so the values can't be recovered, and picking the numeric-looking fields would mistake an all-digit fingerprint for a timestamp.
 
-Fields are quoted with `#{q:...}` like the existing format, so embedded pipes in values survive the split.
+The keys are deliberately not added to `pane_format()` in `src/tmux/query.rs`. That format has 28 fields kept in lock-step with hand-maintained index constants and a `MIN_FIELDS` guard, and the TUI has no use for notify stamps. Extending it would impose maintenance cost on every consumer to serve one CLI subcommand.
+
+The cost of the chosen approach is three subprocess calls per `focus notification` invocation. That is not on any hot path — it runs once per keypress, and `tmux::select_pane` already makes three calls of its own.
+
+Fields are quoted with `#{q:...}` like the existing format.
 
 ## Selection
 
@@ -69,6 +73,8 @@ Selection is a pure function:
 ```rust
 fn select_last_notified_pane(eligible: &[String], stamps: &[(String, u64)]) -> Option<String>
 ```
+
+`stamps` is the concatenation of the three per-key query results, so it may hold **several entries for the same pane** — one per notification kind that pane has fired. A pane's recency is the maximum over its own entries; no separate merge step is needed.
 
 Ties on identical timestamps resolve to whichever pane comes first in tmux enumeration order.
 
@@ -108,7 +114,7 @@ Malformed or empty stamp values are skipped, so a corrupt option value on one pa
 
     `parse_args` returns `(Target, Scope)`. `Direction`, `select_target_pane`, and `eligible_pane_ids` are otherwise unchanged.
   - `cmd_focus` parses `--scope` once, then dispatches on `Target`. `Cycle` runs today's path verbatim.
-  - Add the stamp query, a `parse_stamp_lines(&str) -> Vec<(String, u64)>` helper, `select_last_notified_pane`, and the new message functions.
+  - Add the per-key stamp query, a `parse_stamp_lines(&str) -> Vec<(String, u64)>` helper, `select_last_notified_pane`, and the new message functions.
   - Update `usage()` to `focus <next|prev|notification> [--scope <all|session>]`.
 - `src/desktop_notification.rs` — widen visibility so the stamp encoding stays owned by the module that writes it:
   - expose the three stamp option keys (via a public accessor over `DesktopNotificationKind`, not a duplicated literal list);
@@ -121,13 +127,13 @@ No changes to `src/tmux/query.rs`, the hook path, the adapters, or the TUI.
 Unit tests in `src/cli/focus.rs`'s existing `mod tests`, plus a small addition to the tests in `src/desktop_notification.rs`. No frames are rendered, so the project's inline-snapshot rule for UI tests does not apply.
 
 - `parse_args` accepts `notification`; accepts `notification --scope session`; rejects `last`; rejects `notification` with an invalid scope.
-- `select_last_notified_pane` picks the highest timestamp across all three notification kinds.
+- `select_last_notified_pane` picks the highest timestamp across all three notification kinds, including when one pane contributes several entries.
 - `select_last_notified_pane` ignores stamps for panes absent from `eligible`.
 - `select_last_notified_pane` honours session scope (a newer notification in another session loses to an older one in the active session).
 - `select_last_notified_pane` returns `None` when no candidate carries a stamp.
 - `select_last_notified_pane` resolves a timestamp tie in enumeration order.
 - `select_last_notified_pane` returns the active pane when it is genuinely the most recent.
-- `parse_stamp_lines` handles a line with all three keys empty, a malformed timestamp, and a line where only one of the three keys is set.
+- `parse_stamp_lines` handles an unset option (empty value), a malformed timestamp, a fingerprint containing the `:` from the run-scoped prefix, and a line with no pane id.
 - The new message functions return the expected scope-specific strings.
 - `stamp_timestamp` handles a valid stamp, a malformed stamp, and an empty value.
 
