@@ -1,4 +1,5 @@
 use crate::desktop_notification;
+use crate::group;
 use crate::tmux::SessionInfo;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,7 +64,8 @@ fn select_target_pane(
         .cloned()
 }
 
-/// Every agent pane eligible for cycling, in tmux enumeration order.
+/// Every agent pane eligible for cycling, in the same repo-group order the
+/// sidebar renders.
 ///
 /// No status filter is applied: `query_sessions` already drops panes without
 /// an `@pane_agent` marker (and the sidebar's own pane), so everything left
@@ -86,12 +88,16 @@ fn eligible_pane_ids(
         },
     };
 
-    sessions
+    let scoped_sessions: Vec<SessionInfo> = sessions
         .iter()
         .filter(|session| scoped_session.is_none_or(|name| session.session_name == name))
-        .flat_map(|session| session.windows.iter())
-        .flat_map(|window| window.panes.iter())
-        .map(|pane| pane.pane_id.clone())
+        .cloned()
+        .collect();
+
+    group::group_panes_by_repo(&scoped_sessions)
+        .iter()
+        .flat_map(|group| group.panes.iter())
+        .map(|(pane, _)| pane.pane_id.clone())
         .collect()
 }
 
@@ -134,9 +140,8 @@ fn parse_stamp_lines(raw: &str) -> Vec<(String, u64)> {
 /// user is already on is a meaningful distinction the caller reports on
 /// rather than something to hide.
 ///
-/// Ties resolve to the earlier pane in `eligible` (tmux enumeration
-/// order). The strict `>` is what enforces that: `max_by_key` would keep
-/// the *last* equal maximum instead.
+/// Ties resolve to the earlier pane in `eligible`. The strict `>` is what
+/// enforces that: `max_by_key` would keep the *last* equal maximum instead.
 fn select_last_notified_pane(eligible: &[String], stamps: &[(String, u64)]) -> Option<String> {
     let mut best: Option<(&String, u64)> = None;
     for pane_id in eligible {
@@ -376,6 +381,29 @@ mod tests {
                 panes,
             }],
         }
+    }
+
+    fn pane_at_path(id: &str, path: &str, session_name: &str) -> PaneInfo {
+        let mut pane = pane(id, false, PaneStatus::Running, session_name);
+        pane.path = path.into();
+        pane
+    }
+
+    #[test]
+    fn next_follows_sidebar_repo_order_not_tmux_enumeration_order() {
+        let sessions = vec![session(
+            "one",
+            vec![
+                pane_at_path("%1", "/tmp/m-repo", "one"),
+                pane_at_path("%2", "/tmp/a-repo", "one"),
+                pane_at_path("%3", "/tmp/z-repo", "one"),
+            ],
+        )];
+
+        assert_eq!(
+            select_target_pane(&sessions, "%1", Some("one"), Direction::Next, Scope::All),
+            Some("%3".into())
+        );
     }
 
     #[test]
@@ -738,7 +766,7 @@ mod tests {
     }
 
     #[test]
-    fn last_notified_breaks_ties_in_enumeration_order() {
+    fn last_notified_breaks_ties_in_candidate_order() {
         let stamps = vec![("%2".to_string(), 500), ("%1".to_string(), 500)];
         // Candidate order, not stamp order, decides the winner.
         assert_eq!(
