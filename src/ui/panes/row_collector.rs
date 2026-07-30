@@ -99,10 +99,9 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
                 && row_index == state.global.selected_pane_row;
 
             let is_active = state.focus_state.focused_pane_id.as_ref() == Some(&pane.pane_id);
-            let is_same_window = state
-                .sidebar_window_id
-                .as_deref()
-                .is_some_and(|w| w == pane.window_id);
+            let is_same_window = state.sidebar_window_id.as_deref().is_some_and(|w| {
+                !w.is_empty() && !pane.window_id.is_empty() && w == pane.window_id
+            });
 
             let pane_state = state.pane_state(&pane.pane_id);
             let ports = pane_state.map(|s| s.ports.as_slice());
@@ -248,6 +247,24 @@ mod tests {
             collected.pending_spawn.is_empty(),
             "groups without repo_root must not produce spawn targets"
         );
+    }
+
+    #[test]
+    fn collect_does_not_mark_empty_window_ids_as_same_window() {
+        let mut state = AppState::new("%0".into());
+        state.focus_state.focused_pane_id = Some("%other".into());
+        state.sidebar_window_id = Some(String::new());
+        state.repo_groups = vec![RepoGroup {
+            name: "repo".into(),
+            has_focus: false,
+            panes: vec![(make_pane("%1", PaneStatus::Running), PaneGitInfo::default())],
+        }];
+
+        let collected = collect(&state, 40);
+        let marker_span = &collected.lines[1].spans[0];
+
+        assert_eq!(marker_span.content, " ");
+        assert_eq!(marker_span.style.fg, None);
     }
 
     #[test]
