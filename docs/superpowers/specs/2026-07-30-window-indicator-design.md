@@ -14,7 +14,9 @@ the `┃` marker on the tmux-focused pane, which marks exactly one row.
 
 Every agent pane that lives in the sidebar's own tmux window gets a `┃` marker
 in the existing left marker column, colored from a new `@sidebar_color_window`
-option (default `Indexed(103)` — a dimmer shade of the accent hue).
+option (default `Indexed(103)` — a dimmer shade of the *default* accent hue).
+The two colors are independently configurable: retheming `@sidebar_color_accent`
+does not shift the window marker, matching how every other theme field behaves.
 
 ## Behavior
 
@@ -121,13 +123,16 @@ marker, not a window background.
   (blank).
 - `src/ui/colors.rs` — `@sidebar_color_window` override is read into
   `window_marker`.
-- `tests/ui_snapshot.rs` — one inline `insta` snapshot with three agents: one
+- `tests/color_tests.rs` — one inline `insta` snapshot with three agents: one
   focused, one in the sidebar's window, one in another window. Per the project
-  UI test rule, this is a snapshot assertion, not a substring check.
+  UI test rule, this is a snapshot assertion, not a substring check. It lives in
+  `color_tests.rs` rather than `ui_snapshot.rs` because verifying the marker
+  needs `render_to_styled_string`, and every styled snapshot in the repo is
+  already there.
 
 ## Documentation
 
-Add `@sidebar_color_window` to the "Core colors" table in
+Add `@sidebar_color_window` to the "Structural colors" table in
 `website/src/content/docs/reference/tmux-options.md`, next to
 `@sidebar_color_accent`, described as "Marker on agents in the sidebar's own
 window". Add a `sidebar_window_id` row to the scope / update-frequency table in
