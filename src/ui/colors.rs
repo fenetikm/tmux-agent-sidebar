@@ -32,6 +32,10 @@ pub struct ColorTheme {
     pub port: Color,
     pub wait_reason: Color,
     pub selection_bg: Color,
+    /// Marker on agent panes that share the sidebar's own tmux window but
+    /// do not hold focus. A dimmer companion to `accent`; the two are
+    /// configured independently, so retheming `accent` does not shift it.
+    pub window_marker: Color,
     pub branch: Color,
     pub badge_danger: Color,
     pub badge_auto: Color,
@@ -72,6 +76,7 @@ impl Default for ColorTheme {
             port: Color::Indexed(246),
             wait_reason: Color::Indexed(221),
             selection_bg: Color::Indexed(239),
+            window_marker: Color::Indexed(103),
             branch: Color::Indexed(109),
             badge_danger: Color::Indexed(167),
             badge_auto: Color::Indexed(221),
@@ -128,6 +133,7 @@ impl ColorTheme {
         theme.port = read(tmux::SIDEBAR_COLOR_PORT, theme.port);
         theme.wait_reason = read(tmux::SIDEBAR_COLOR_WAIT_REASON, theme.wait_reason);
         theme.selection_bg = read(tmux::SIDEBAR_COLOR_SELECTION, theme.selection_bg);
+        theme.window_marker = read(tmux::SIDEBAR_COLOR_WINDOW, theme.window_marker);
         theme.branch = read(tmux::SIDEBAR_COLOR_BRANCH, theme.branch);
         theme.task_progress = read(tmux::SIDEBAR_COLOR_TASK_PROGRESS, theme.task_progress);
         theme.subagent = read(tmux::SIDEBAR_COLOR_SUBAGENT, theme.subagent);
@@ -251,6 +257,31 @@ mod tests {
         let theme = ColorTheme::default();
         assert_eq!(theme.pet_body, Color::Indexed(208));
         assert_eq!(theme.pet_eye, Color::Indexed(114));
+    }
+
+    #[test]
+    fn window_marker_defaults_to_dim_accent_shade() {
+        assert_eq!(ColorTheme::default().window_marker, Color::Indexed(103));
+    }
+
+    #[test]
+    fn from_options_reads_window_marker_override() {
+        let mut options = std::collections::HashMap::new();
+        options.insert(tmux::SIDEBAR_COLOR_WINDOW.to_string(), "60".to_string());
+
+        let theme = ColorTheme::from_options(&options);
+
+        assert_eq!(theme.window_marker, Color::Indexed(60));
+    }
+
+    #[test]
+    fn from_options_window_marker_falls_back_when_invalid() {
+        let mut options = std::collections::HashMap::new();
+        options.insert(tmux::SIDEBAR_COLOR_WINDOW.to_string(), "nope".to_string());
+
+        let theme = ColorTheme::from_options(&options);
+
+        assert_eq!(theme.window_marker, ColorTheme::default().window_marker);
     }
 
     #[test]
