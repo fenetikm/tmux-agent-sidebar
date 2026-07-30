@@ -1122,3 +1122,46 @@ fn test_unknown_status_color_in_output() {
         ratatui::style::Color::Indexed(244)
     );
 }
+
+// Three agents in one repo group: `%1` holds tmux focus, `%2` shares the
+// sidebar's window (`@1`), `%3` lives in another window (`@2`). Verifies the
+// marker column paints accent 153, window 103, and blank respectively.
+#[test]
+fn window_marker_colors_distinguish_focus_window_and_elsewhere() {
+    let mut focused = make_pane(AgentType::Claude, PaneStatus::Idle);
+    focused.pane_id = "%1".into();
+    focused.window_id = "@1".into();
+
+    let mut neighbor = make_pane(AgentType::Codex, PaneStatus::Idle);
+    neighbor.pane_id = "%2".into();
+    neighbor.window_id = "@1".into();
+
+    let mut elsewhere = make_pane(AgentType::Claude, PaneStatus::Idle);
+    elsewhere.pane_id = "%3".into();
+    elsewhere.window_id = "@2".into();
+
+    let mut state = make_state(vec![]);
+    // Keep the sidebar cursor out of the picture so the snapshot shows the
+    // marker colors alone, with no selection background.
+    state.focus_state.sidebar_focused = false;
+    state.bottom_panel_height = 0;
+    state.focus_state.focused_pane_id = Some("%1".into());
+    state.sidebar_window_id = Some("@1".into());
+    state.repo_groups = vec![make_repo_group(
+        "project",
+        vec![focused, neighbor, elsewhere],
+    )];
+    state.rebuild_row_targets();
+
+    insta::assert_snapshot!(render_to_styled_string(&mut state, 28, 25), @r"
+     ≡[fg:111]3[fg:255]  ●[fg:245]0[fg:245]  ◎[fg:245]0[fg:245]  ◐[fg:245]0[fg:245]  ○[fg:245]3[fg:255]  ✕[fg:245]0[fg:245]
+    ⓘ[fg:221]                        —[fg:252] ▾[fg:252]
+    p[fg:153]r[fg:153]o[fg:153]j[fg:153]e[fg:153]c[fg:153]t[fg:153]
+    ┃[fg:153] ○[fg:110] [fg:174]c[fg:174]l[fg:174]a[fg:174]u[fg:174]d[fg:174]e[fg:174]
+       [fg:255] [fg:255]W[fg:255]a[fg:255]i[fg:255]t[fg:255]i[fg:255]n[fg:255]g[fg:255] [fg:255]f[fg:255]o[fg:255]r[fg:255] [fg:255]p[fg:255]r[fg:255]o[fg:255]m[fg:255]p[fg:255]t[fg:255]…[fg:255]
+    ┃[fg:103] ○[fg:110] [fg:141]c[fg:141]o[fg:141]d[fg:141]e[fg:141]x[fg:141]
+       [fg:244] [fg:244]W[fg:244]a[fg:244]i[fg:244]t[fg:244]i[fg:244]n[fg:244]g[fg:244] [fg:244]f[fg:244]o[fg:244]r[fg:244] [fg:244]p[fg:244]r[fg:244]o[fg:244]m[fg:244]p[fg:244]t[fg:244]…[fg:244]
+      ○[fg:110] [fg:174]c[fg:174]l[fg:174]a[fg:174]u[fg:174]d[fg:174]e[fg:174]
+       [fg:244] [fg:244]W[fg:244]a[fg:244]i[fg:244]t[fg:244]i[fg:244]n[fg:244]g[fg:244] [fg:244]f[fg:244]o[fg:244]r[fg:244] [fg:244]p[fg:244]r[fg:244]o[fg:244]m[fg:244]p[fg:244]t[fg:244]…[fg:244]
+    ");
+}

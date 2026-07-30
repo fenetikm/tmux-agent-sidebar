@@ -29,6 +29,7 @@ pub(super) fn render_pane_lines_with_ports(
     task_progress: Option<&crate::activity::TaskProgress>,
     selected: bool,
     active: bool,
+    same_window: bool,
     width: usize,
     icons: &StatusIcons,
     theme: &ColorTheme,
@@ -44,18 +45,29 @@ pub(super) fn render_pane_lines_with_ports(
         Some(c) => style.bg(c),
         None => style,
     };
-    // The left marker `┃` highlights the pane that is currently focused in
-    // tmux (`active`). To keep the active accent compact, it only appears on
-    // the status row and the branch/ports row (when present) — never on
-    // deeper details like task progress or prompt wrapping. The sidebar
-    // cursor position (`selected`) still paints the full pane with the
-    // selection background.
+    // The left marker `┃` answers "where am I": accent for the pane that
+    // currently holds tmux focus, the dimmer window color for other agents
+    // sharing the sidebar's own window, blank for agents in other windows.
+    // To keep the accent compact it only appears on the status row and the
+    // branch/ports row (when present) - never on deeper details like task
+    // progress or prompt wrapping. The sidebar cursor position (`selected`)
+    // still paints the full pane with the selection background.
+    let marker_fg = if active {
+        Some(theme.accent)
+    } else if same_window {
+        Some(theme.window_marker)
+    } else {
+        None
+    };
     let marker_ctx = RowCtx {
-        marker_char: if active { SELECTION_MARKER } else { " " },
-        marker_style: if active {
-            apply_bg(Style::default().fg(theme.accent))
+        marker_char: if marker_fg.is_some() {
+            SELECTION_MARKER
         } else {
-            apply_bg(Style::default())
+            " "
+        },
+        marker_style: match marker_fg {
+            Some(fg) => apply_bg(Style::default().fg(fg)),
+            None => apply_bg(Style::default()),
         },
         inner_width: width.saturating_sub(2),
         theme,
@@ -167,6 +179,7 @@ mod tests {
             None,
             false,
             false,
+            false,
             40,
             &StatusIcons::default(),
             &theme,
@@ -187,6 +200,7 @@ mod tests {
             &PaneGitInfo::default(),
             None,
             None,
+            false,
             false,
             false,
             40,
@@ -213,6 +227,7 @@ mod tests {
             &PaneGitInfo::default(),
             None,
             None,
+            false,
             false,
             false,
             40,
@@ -250,6 +265,7 @@ mod tests {
             &PaneGitInfo::default(),
             None,
             None,
+            false,
             false,
             false,
             30,
@@ -297,6 +313,7 @@ mod tests {
             None,
             false,
             false,
+            false,
             40,
             &StatusIcons::default(),
             &theme,
@@ -326,6 +343,7 @@ mod tests {
             },
             Some(&ports),
             None,
+            false,
             false,
             false,
             40,
@@ -358,6 +376,7 @@ mod tests {
             &PaneGitInfo::default(),
             None,
             None,
+            false,
             false,
             false,
             40,
@@ -405,6 +424,7 @@ mod tests {
             None,
             false,
             false,
+            false,
             40,
             &StatusIcons::default(),
             &theme,
@@ -433,6 +453,7 @@ mod tests {
             None,
             false,
             false,
+            false,
             40,
             &StatusIcons::default(),
             &theme,
@@ -459,6 +480,7 @@ mod tests {
             None,
             false,
             false,
+            false,
             40,
             &StatusIcons::default(),
             &theme,
@@ -483,6 +505,7 @@ mod tests {
             &PaneGitInfo::default(),
             None,
             None,
+            false,
             false,
             false,
             40,
@@ -512,6 +535,7 @@ mod tests {
             &PaneGitInfo::default(),
             None,
             None,
+            false,
             false,
             false,
             20,
@@ -546,6 +570,7 @@ mod tests {
             None,
             false,
             false,
+            false,
             18,
             &StatusIcons::default(),
             &theme,
@@ -571,6 +596,7 @@ mod tests {
             None,
             false,
             false,
+            false,
             40,
             &StatusIcons::default(),
             &theme,
@@ -594,6 +620,7 @@ mod tests {
             &PaneGitInfo::default(),
             None,
             None,
+            false,
             false,
             false,
             40,
@@ -623,6 +650,7 @@ mod tests {
             &PaneGitInfo::default(),
             None,
             None,
+            false,
             false,
             false,
             40,
@@ -655,6 +683,7 @@ mod tests {
             None,
             false,
             false,
+            false,
             40,
             &StatusIcons::default(),
             &theme,
@@ -684,6 +713,7 @@ mod tests {
             None,
             false,
             false,
+            false,
             20,
             &StatusIcons::default(),
             &theme,
@@ -708,6 +738,7 @@ mod tests {
             &PaneGitInfo::default(),
             None,
             None,
+            false,
             false,
             false,
             40,
@@ -742,6 +773,7 @@ mod tests {
             Some(&progress),
             false,
             false,
+            false,
             40,
             &StatusIcons::default(),
             &theme,
@@ -766,6 +798,7 @@ mod tests {
             &PaneGitInfo::default(),
             None,
             Some(&progress),
+            false,
             false,
             false,
             40,
@@ -1051,6 +1084,7 @@ mod tests {
             None,
             true, // selected
             false,
+            false,
             40,
             &StatusIcons::default(),
             &theme,
@@ -1082,6 +1116,7 @@ mod tests {
             None,
             true, // selected
             false,
+            false,
             40,
             &StatusIcons::default(),
             &theme,
@@ -1110,6 +1145,7 @@ mod tests {
             None,
             false,
             true, // active
+            false,
             40,
             &StatusIcons::default(),
             &theme,
@@ -1132,6 +1168,77 @@ mod tests {
             !title_span.style.add_modifier.contains(Modifier::BOLD),
             "active pane title should not be BOLD"
         );
+    }
+
+    #[test]
+    fn render_pane_lines_same_window_uses_window_marker_color() {
+        let theme = ColorTheme::default();
+        let pane = pane(PermissionMode::Default, PaneStatus::Running, "");
+        let lines = render_pane_lines_with_ports(
+            &pane,
+            &PaneGitInfo::default(),
+            None,
+            None,
+            false,
+            false, // active
+            true,  // same_window
+            40,
+            &StatusIcons::default(),
+            &theme,
+            0,
+            0,
+        );
+
+        let marker_span = &lines[0].spans[0];
+        assert_eq!(marker_span.content, SELECTION_MARKER);
+        assert_eq!(marker_span.style.fg, Some(theme.window_marker));
+    }
+
+    #[test]
+    fn render_pane_lines_active_wins_over_same_window() {
+        let theme = ColorTheme::default();
+        let pane = pane(PermissionMode::Default, PaneStatus::Running, "");
+        let lines = render_pane_lines_with_ports(
+            &pane,
+            &PaneGitInfo::default(),
+            None,
+            None,
+            false,
+            true, // active
+            true, // same_window
+            40,
+            &StatusIcons::default(),
+            &theme,
+            0,
+            0,
+        );
+
+        let marker_span = &lines[0].spans[0];
+        assert_eq!(marker_span.content, SELECTION_MARKER);
+        assert_eq!(marker_span.style.fg, Some(theme.accent));
+    }
+
+    #[test]
+    fn render_pane_lines_other_window_has_blank_marker() {
+        let theme = ColorTheme::default();
+        let pane = pane(PermissionMode::Default, PaneStatus::Running, "");
+        let lines = render_pane_lines_with_ports(
+            &pane,
+            &PaneGitInfo::default(),
+            None,
+            None,
+            false,
+            false, // active
+            false, // same_window
+            40,
+            &StatusIcons::default(),
+            &theme,
+            0,
+            0,
+        );
+
+        assert_eq!(lines[0].spans[0].content, " ");
+        assert_eq!(lines[0].spans[0].style.fg, None);
     }
 
     #[test]

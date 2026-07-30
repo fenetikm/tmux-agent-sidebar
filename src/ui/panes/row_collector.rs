@@ -99,6 +99,10 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
                 && row_index == state.global.selected_pane_row;
 
             let is_active = state.focus_state.focused_pane_id.as_ref() == Some(&pane.pane_id);
+            let is_same_window = state
+                .sidebar_window_id
+                .as_deref()
+                .is_some_and(|w| w == pane.window_id);
 
             let pane_state = state.pane_state(&pane.pane_id);
             let ports = pane_state.map(|s| s.ports.as_slice());
@@ -111,6 +115,7 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
                 task_progress,
                 is_selected,
                 is_active,
+                is_same_window,
                 width,
                 &state.icons,
                 theme,
