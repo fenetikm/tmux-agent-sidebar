@@ -56,6 +56,10 @@ pub struct AppState {
     pub layout: FrameLayout,
     pub activity: ActivityState,
     pub tmux_pane: String,
+    /// tmux window the sidebar pane itself lives in, refreshed every 1s.
+    /// `None` when tmux did not report one - the window marker then applies
+    /// to no pane at all.
+    pub sidebar_window_id: Option<String>,
     /// Scroll offsets for the agents list and git tab. Activity tab
     /// scroll lives in [`ActivityState::scroll`].
     pub scrolls: ScrollStates,
@@ -147,6 +151,7 @@ impl AppState {
             layout: FrameLayout::default(),
             activity: ActivityState::new(),
             tmux_pane,
+            sidebar_window_id: None,
             scrolls: ScrollStates::default(),
             theme: ColorTheme::default(),
             icons: StatusIcons::default(),

@@ -1,20 +1,45 @@
 use super::commands::{display_message, run_tmux};
 
-pub fn get_sidebar_pane_info(tmux_pane: &str) -> (bool, bool, u16, u16) {
+/// Fallback sidebar width when tmux gives no usable answer.
+pub(crate) const DEFAULT_SIDEBAR_WIDTH: u16 = 28;
+/// Fallback sidebar height when tmux gives no usable answer.
+pub(crate) const DEFAULT_SIDEBAR_HEIGHT: u16 = 24;
+
+/// Placement and geometry of the sidebar's own pane, read in a single
+/// `display-message` call per refresh.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarPaneInfo {
+    /// Whether the sidebar pane itself holds tmux focus.
+    pub pane_active: bool,
+    /// Whether the window the sidebar lives in is the active one.
+    pub window_active: bool,
+    pub width: u16,
+    pub height: u16,
+    /// tmux window the sidebar pane lives in (e.g. `@3`). `None` when tmux
+    /// returned no value - callers must treat that as "no window known"
+    /// rather than matching every pane.
+    pub window_id: Option<String>,
+}
+
+pub fn get_sidebar_pane_info(tmux_pane: &str) -> SidebarPaneInfo {
     let out = display_message(
         tmux_pane,
-        "#{pane_active} #{window_active} #{pane_width} #{pane_height}",
+        "#{pane_active} #{window_active} #{pane_width} #{pane_height} #{window_id}",
     );
-    let parts: Vec<&str> = out.splitn(4, ' ').collect();
-    if parts.len() >= 4 {
-        (
-            parts[0] == "1",
-            parts[1] == "1",
-            parts[2].parse().unwrap_or(28),
-            parts[3].parse().unwrap_or(24),
-        )
-    } else {
-        (false, false, 28, 24)
+    parse_sidebar_pane_info(&out)
+}
+
+/// Pure parser for the `display-message` reply. Each field falls back
+/// independently so a truncated reply still yields usable geometry.
+pub(crate) fn parse_sidebar_pane_info(out: &str) -> SidebarPaneInfo {
+    let parts: Vec<&str> = out.split_whitespace().collect();
+    let field = |i: usize| parts.get(i).copied().unwrap_or_default();
+    SidebarPaneInfo {
+        pane_active: field(0) == "1",
+        window_active: field(1) == "1",
+        width: field(2).parse().unwrap_or(DEFAULT_SIDEBAR_WIDTH),
+        height: field(3).parse().unwrap_or(DEFAULT_SIDEBAR_HEIGHT),
+        window_id: Some(field(4).to_string()).filter(|s| !s.is_empty()),
     }
 }
 
@@ -80,6 +105,50 @@ pub fn focused_pane_path(sidebar_pane: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_sidebar_pane_info_reads_all_fields() {
+        let info = parse_sidebar_pane_info("1 1 28 40 @7");
+        assert_eq!(
+            info,
+            SidebarPaneInfo {
+                pane_active: true,
+                window_active: true,
+                width: 28,
+                height: 40,
+                window_id: Some("@7".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_sidebar_pane_info_handles_inactive_flags() {
+        let info = parse_sidebar_pane_info("0 0 30 12 @1");
+        assert!(!info.pane_active);
+        assert!(!info.window_active);
+        assert_eq!(info.width, 30);
+        assert_eq!(info.height, 12);
+    }
+
+    #[test]
+    fn parse_sidebar_pane_info_falls_back_on_short_reply() {
+        let info = parse_sidebar_pane_info("1 1");
+        assert!(info.pane_active);
+        assert!(info.window_active);
+        assert_eq!(info.width, DEFAULT_SIDEBAR_WIDTH);
+        assert_eq!(info.height, DEFAULT_SIDEBAR_HEIGHT);
+        assert_eq!(info.window_id, None);
+    }
+
+    #[test]
+    fn parse_sidebar_pane_info_treats_empty_reply_as_unresolved() {
+        let info = parse_sidebar_pane_info("");
+        assert!(!info.pane_active);
+        assert!(!info.window_active);
+        assert_eq!(info.width, DEFAULT_SIDEBAR_WIDTH);
+        assert_eq!(info.height, DEFAULT_SIDEBAR_HEIGHT);
+        assert_eq!(info.window_id, None);
+    }
 
     #[test]
     fn pick_active_pane_returns_active_non_sidebar() {
