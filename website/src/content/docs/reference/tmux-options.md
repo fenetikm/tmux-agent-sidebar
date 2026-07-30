@@ -49,6 +49,7 @@ Most options must be set **before** loading the plugin in your `tmux.conf`. Colo
 | `@sidebar_color_accent`    | `153`&nbsp;(pale sky blue) | Active pane marker, focused repo header, focused bottom panel border, repo popup border — the brand color |
 | `@sidebar_color_session`   | `39`&nbsp;(blue)          | Session name                                                                                            |
 | `@sidebar_color_selection` | `239`&nbsp;(dark gray)    | Selected row background                                                                                 |
+| `@sidebar_color_window`    | `103`&nbsp;(dim slate blue) | Marker on agents sharing the sidebar's own window (the focused pane keeps `@sidebar_color_accent`) |
 
 ## Agent colors
 
