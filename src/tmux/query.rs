@@ -183,7 +183,8 @@ fn build_session_hierarchy(
                 panes: Vec::new(),
             });
 
-        if let Some(pane) = parse_pane_fields_with_processes(pane_fields, process_snapshot) {
+        if let Some(mut pane) = parse_pane_fields_with_processes(pane_fields, process_snapshot) {
+            pane.window_id = window_id.to_string();
             if pane.agent == AgentType::Codex
                 && let Some(pid) = pane.pane_pid
             {
@@ -338,6 +339,7 @@ fn parse_pane_fields_with_processes(
         },
         session_id,
         session_name: String::new(),
+        window_id: String::new(),
         sidebar_spawned: parts[pane_line_field::SIDEBAR_SPAWNED] == "1",
         bg_shell_cmd: {
             let raw = &parts[pane_line_field::BG_CMD];
@@ -601,6 +603,7 @@ mod tests {
             worktree: WorktreeMetadata::default(),
             session_id: None,
             session_name: String::new(),
+            window_id: String::new(),
             sidebar_spawned: false,
             bg_shell_cmd: None,
         }
@@ -1187,6 +1190,7 @@ mod tests {
                     worktree: WorktreeMetadata::default(),
                     session_id: None,
                     session_name: String::new(),
+                    window_id: String::new(),
                     sidebar_spawned: false,
                     bg_shell_cmd: None,
                 }],
@@ -1240,6 +1244,10 @@ mod tests {
     /// with the given session name and pane_pid. All other fields are
     /// empty/defaults — enough to survive parsing as an opencode pane.
     fn make_full_pane_line(session_name: &str, pane_pid: u32) -> String {
+        make_full_pane_line_in_window(session_name, pane_pid, "@0")
+    }
+
+    fn make_full_pane_line_in_window(session_name: &str, pane_pid: u32, window_id: &str) -> String {
         // Field layout (pane_format):
         // 0:session_name|1:window_id|2:window_index|3:window_name|
         // 4:window_active|5:automatic-rename|6:pane_active|7:@pane_status|
@@ -1253,7 +1261,7 @@ mod tests {
         // 28 total fields (MIN_FIELDS = 28)
         let mut fields: Vec<&str> = vec![""; 28];
         fields[0] = session_name;
-        fields[1] = "@0"; // window_id
+        fields[1] = window_id; // window_id
         fields[3] = "win"; // window_name
         fields[4] = "1"; // window_active
         fields[9] = "opencode"; // @pane_agent
@@ -1263,6 +1271,35 @@ mod tests {
         let pid_str = pane_pid.to_string();
         fields[19] = &pid_str; // pane_pid
         fields.join("|")
+    }
+
+    #[test]
+    fn build_session_hierarchy_assigns_window_id_to_each_pane() {
+        let line_a = make_full_pane_line_in_window("primary", 41, "@7");
+        let line_b = make_full_pane_line_in_window("primary", 42, "@9");
+
+        let input = format!("{line_a}\n{line_b}");
+        let (sessions_map, _) = build_session_hierarchy(&input, None);
+        let sessions = finalize_sessions(sessions_map);
+
+        let mut seen: Vec<(String, String)> = sessions[0]
+            .windows
+            .iter()
+            .flat_map(|w| {
+                w.panes
+                    .iter()
+                    .map(|p| (w.window_id.clone(), p.window_id.clone()))
+            })
+            .collect();
+        seen.sort();
+
+        assert_eq!(
+            seen,
+            vec![
+                ("@7".to_string(), "@7".to_string()),
+                ("@9".to_string(), "@9".to_string()),
+            ]
+        );
     }
 
     #[test]

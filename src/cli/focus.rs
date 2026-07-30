@@ -359,6 +359,7 @@ mod tests {
             worktree: WorktreeMetadata::default(),
             session_id: None,
             session_name: session_name.into(),
+            window_id: String::new(),
             sidebar_spawned: false,
             bg_shell_cmd: None,
         }

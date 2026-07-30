@@ -21,6 +21,11 @@ pub struct PaneInfo {
     pub worktree: WorktreeMetadata,
     pub session_id: Option<String>,
     pub session_name: String,
+    /// tmux window this pane lives in (e.g. `@3`). Populated from the
+    /// session-level `window_id` field of the `list-panes -a` query, which
+    /// would otherwise be lost when `group.rs` flattens the
+    /// session -> window -> pane tree into repo groups. Empty when unknown.
+    pub window_id: String,
     /// `true` when the window this pane lives in was created by the
     /// sidebar's spawn flow (via the `@agent-sidebar-spawned` window
     /// option). Used by the row renderer to show a clickable red `×`
