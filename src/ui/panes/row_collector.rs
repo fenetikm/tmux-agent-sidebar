@@ -107,7 +107,7 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
             let ports = pane_state.map(|s| s.ports.as_slice());
             let task_progress = pane_state.and_then(|s| s.task_progress.as_ref());
             let status_line_idx = collected.lines.len();
-            let pane_lines = row::render_pane_lines_with_ports(
+            let pane_lines = row::render_pane_lines_with_options(
                 pane,
                 git_info,
                 ports,
@@ -120,6 +120,7 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
                 theme,
                 state.spinner_frame,
                 state.now,
+                state.show_session_names,
             );
             let pane_line_count = pane_lines.len();
             collected.lines.extend(pane_lines);

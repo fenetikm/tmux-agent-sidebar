@@ -90,17 +90,16 @@ pub const SIDEBAR_CURSOR: &str = "@sidebar_cursor";
 pub const SIDEBAR_REPO_FILTER: &str = "@sidebar_repo_filter";
 pub const SIDEBAR_BOTTOM_HEIGHT: &str = "@sidebar_bottom_height";
 pub const SIDEBAR_PET: &str = "@sidebar_pet";
+pub const SIDEBAR_SHOW_SESSION_NAMES: &str = "@sidebar_show_session_names";
 pub const SIDEBAR_NOTIFICATIONS: &str = "@sidebar_notifications";
 pub const SIDEBAR_NOTIFICATIONS_EVENTS: &str = "@sidebar_notifications_events";
-/// Whitespace-separated glob patterns of session names excluded from
-/// *automatic* sidebar creation (`toggle-all` and the `after-new-window`
-/// hook). Unset/empty => no exclusions. Manual `toggle` (the `e` key)
-/// ignores this list.
+/// Whitespace-separated glob patterns of session names excluded from automatic
+/// sidebar creation, sidebar agent visibility, and focus targets. Unset/empty
+/// => no exclusions. Manual `toggle` (the `e` key) ignores this list.
 pub const SIDEBAR_EXCLUDE_SESSIONS: &str = "@sidebar_exclude_sessions";
-/// Whitespace-separated glob patterns of window names excluded from
-/// *automatic* sidebar creation (`toggle-all` and the `after-new-window`
-/// hook). Unset/empty => no exclusions. Manual `toggle` (the `e` key)
-/// ignores this list.
+/// Whitespace-separated glob patterns of window names excluded from automatic
+/// sidebar creation, sidebar agent visibility, and focus targets. Unset/empty
+/// => no exclusions. Manual `toggle` (the `e` key) ignores this list.
 pub const SIDEBAR_EXCLUDE_WINDOWS: &str = "@sidebar_exclude_windows";
 
 pub const SIDEBAR_COLOR_ACCENT: &str = "@sidebar_color_accent";

@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use crate::cli::session_filter;
 use crate::process::{ProcessSnapshot, command_basename};
 
 use super::commands::run_tmux;
@@ -125,8 +126,12 @@ pub(crate) fn query_sessions_with_process_snapshot() -> (Vec<SessionInfo>, Optio
     };
 
     let process_snapshot = process_snapshot_for_panes(&all_panes_output);
-    let (mut sessions_map, codex_pids) =
-        build_session_hierarchy(&all_panes_output, process_snapshot.as_ref());
+    let (mut sessions_map, codex_pids) = build_session_hierarchy_with_exclusions(
+        &all_panes_output,
+        process_snapshot.as_ref(),
+        &session_filter::exclude_session_patterns(),
+        &session_filter::exclude_window_patterns(),
+    );
     if !codex_pids.is_empty()
         && let Some(snapshot) = &process_snapshot
     {
@@ -138,9 +143,19 @@ pub(crate) fn query_sessions_with_process_snapshot() -> (Vec<SessionInfo>, Optio
 /// Parse the raw `tmux list-panes` output into an indexed session→window→pane
 /// hierarchy. Also returns every Codex pane's pid so the caller can resolve
 /// permission modes in a single `ps` pass.
+#[cfg(test)]
 fn build_session_hierarchy(
     all_panes_output: &str,
     process_snapshot: Option<&ProcessSnapshot>,
+) -> (SessionMap, Vec<CodexPidEntry>) {
+    build_session_hierarchy_with_exclusions(all_panes_output, process_snapshot, &[], &[])
+}
+
+fn build_session_hierarchy_with_exclusions(
+    all_panes_output: &str,
+    process_snapshot: Option<&ProcessSnapshot>,
+    excluded_session_patterns: &[String],
+    excluded_window_patterns: &[String],
 ) -> (SessionMap, Vec<CodexPidEntry>) {
     let mut sessions_map: SessionMap = indexmap::IndexMap::new();
     let mut codex_pids: Vec<CodexPidEntry> = Vec::new();
@@ -153,6 +168,15 @@ fn build_session_hierarchy(
         }
 
         let session_name = parts[session_line_field::SESSION_NAME].as_str();
+        if session_filter::session_excluded(session_name, excluded_session_patterns) {
+            continue;
+        }
+
+        let window_name = parts[session_line_field::WINDOW_NAME].as_str();
+        if session_filter::window_excluded(window_name, excluded_window_patterns) {
+            continue;
+        }
+
         let window_id = parts[session_line_field::WINDOW_ID].as_str();
         // Pass the unescaped pane fields directly instead of re-joining
         // with `|` and re-splitting, which would turn any literal pipe
@@ -177,7 +201,7 @@ fn build_session_hierarchy(
             .entry(window_id.to_string())
             .or_insert_with(|| WindowInfo {
                 window_id: window_id.to_string(),
-                window_name: parts[session_line_field::WINDOW_NAME].to_string(),
+                window_name: window_name.to_string(),
                 window_active: parts[session_line_field::WINDOW_ACTIVE] == "1",
                 auto_rename: parts[session_line_field::AUTOMATIC_RENAME] == "1",
                 panes: Vec::new(),
@@ -1248,6 +1272,15 @@ mod tests {
     }
 
     fn make_full_pane_line_in_window(session_name: &str, pane_pid: u32, window_id: &str) -> String {
+        make_full_pane_line_in_named_window(session_name, pane_pid, window_id, "win")
+    }
+
+    fn make_full_pane_line_in_named_window(
+        session_name: &str,
+        pane_pid: u32,
+        window_id: &str,
+        window_name: &str,
+    ) -> String {
         // Field layout (pane_format):
         // 0:session_name|1:window_id|2:window_index|3:window_name|
         // 4:window_active|5:automatic-rename|6:pane_active|7:@pane_status|
@@ -1262,7 +1295,7 @@ mod tests {
         let mut fields: Vec<&str> = vec![""; 28];
         fields[0] = session_name;
         fields[1] = window_id; // window_id
-        fields[3] = "win"; // window_name
+        fields[3] = window_name; // window_name
         fields[4] = "1"; // window_active
         fields[9] = "opencode"; // @pane_agent
         fields[11] = "/tmp"; // pane_current_path
@@ -1271,6 +1304,38 @@ mod tests {
         let pid_str = pane_pid.to_string();
         fields[19] = &pid_str; // pane_pid
         fields.join("|")
+    }
+
+    #[test]
+    fn build_session_hierarchy_filters_excluded_sessions() {
+        let visible = make_full_pane_line_in_window("main", 41, "@1");
+        let hidden = make_full_pane_line_in_window("scratch-popup", 42, "@2");
+        let input = format!("{visible}\n{hidden}");
+
+        let (sessions_map, _) =
+            build_session_hierarchy_with_exclusions(&input, None, &["scratch-*".to_string()], &[]);
+        let sessions = finalize_sessions(sessions_map);
+
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].session_name, "main");
+        assert_eq!(sessions[0].windows.len(), 1);
+        assert_eq!(sessions[0].windows[0].panes.len(), 1);
+    }
+
+    #[test]
+    fn build_session_hierarchy_filters_excluded_windows() {
+        let visible = make_full_pane_line_in_named_window("main", 41, "@1", "editor");
+        let hidden = make_full_pane_line_in_named_window("main", 42, "@2", "logs");
+        let input = format!("{visible}\n{hidden}");
+
+        let (sessions_map, _) =
+            build_session_hierarchy_with_exclusions(&input, None, &[], &["logs".to_string()]);
+        let sessions = finalize_sessions(sessions_map);
+
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].windows.len(), 1);
+        assert_eq!(sessions[0].windows[0].window_name, "editor");
+        assert_eq!(sessions[0].windows[0].panes.len(), 1);
     }
 
     #[test]

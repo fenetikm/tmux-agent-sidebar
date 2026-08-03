@@ -16,11 +16,20 @@ Most options must be set **before** loading the plugin in your `tmux.conf`. Colo
 | `@sidebar_width`                 | `15%`   | Width in columns or as a percentage                                                     |
 | `@sidebar_position`              | `left`  | Sidebar placement (`left` or `right`)                                                   |
 | `@sidebar_bottom_height`         | `20`    | Bottom panel height in lines (set `0` to hide)                                          |
+| `@sidebar_show_session_names`    | `on`    | Show Claude `/rename` session labels in pane rows. Set `off` to always show the agent label (`claude`, `codex`, `opencode`) |
 | `@sidebar_auto_create`           | `on`    | Auto-create the sidebar on new windows (set `off` to disable)                           |
 | `@sidebar_auto_create_delay`     | `0`     | Seconds to defer auto-create after a window opens, so a declaratively-built window (e.g. tmuxinator's `select-layout`) finishes before the sidebar pane is injected; accepts fractional seconds. `0` keeps the create synchronous |
 | `@sidebar_notifications`         | `on`    | Master switch for desktop notifications                                                 |
 | `@sidebar_notifications_events`  | unset   | Restrict events — see [Notifications](/tmux-agent-sidebar/features/notifications/)       |
 | `@sidebar_pet`                  | `off`   | Show the animated pet in a 5-row band above the bottom panel                           |
+
+Set `@sidebar_show_session_names` to `off` if you want pane rows to keep showing the agent label instead of switching to Claude `/rename` labels:
+
+```tmux
+set -g @sidebar_show_session_names off
+```
+
+When changing this in an already-running tmux server, reload your `tmux.conf` and restart existing sidebar panes (`prefix + E` twice). The sidebar reads this option at startup.
 
 ## Worktree spawn defaults
 

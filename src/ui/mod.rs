@@ -51,6 +51,21 @@ pub fn pet_enabled_from_tmux() -> bool {
     pet_enabled_from_options(&opts)
 }
 
+/// Read `@sidebar_show_session_names` from tmux global options, defaulting to
+/// `true` to preserve the existing `/rename` label behavior.
+/// Accepts `on`/`off`, `true`/`false`, `1`/`0` (case-insensitive).
+pub fn show_session_names_from_options(opts: &HashMap<String, String>) -> bool {
+    opts.get(tmux::SIDEBAR_SHOW_SESSION_NAMES)
+        .map(|s| s.trim().to_ascii_lowercase())
+        .map(|s| matches!(s.as_str(), "on" | "true" | "1" | "yes"))
+        .unwrap_or(true)
+}
+
+pub fn show_session_names_from_tmux() -> bool {
+    let opts = crate::tmux::get_all_global_options();
+    show_session_names_from_options(&opts)
+}
+
 // ── public entry point ──────────────────────────────────────────────
 
 pub fn draw(frame: &mut Frame, state: &mut AppState) {
@@ -158,6 +173,34 @@ mod tests {
             assert!(
                 !pet_enabled_from_options(&opts),
                 "expected {value} to disable"
+            );
+        }
+    }
+
+    #[test]
+    fn session_names_default_on_when_option_missing() {
+        let opts = HashMap::new();
+        assert!(show_session_names_from_options(&opts));
+    }
+
+    #[test]
+    fn session_names_disabled_when_off() {
+        for value in ["off", "OFF", "false", "0", "no", ""] {
+            let opts = opts_with(tmux::SIDEBAR_SHOW_SESSION_NAMES, value);
+            assert!(
+                !show_session_names_from_options(&opts),
+                "expected {value} to disable session names"
+            );
+        }
+    }
+
+    #[test]
+    fn session_names_enabled_when_on() {
+        for value in ["on", "ON", "true", "1", "yes"] {
+            let opts = opts_with(tmux::SIDEBAR_SHOW_SESSION_NAMES, value);
+            assert!(
+                show_session_names_from_options(&opts),
+                "expected {value} to enable session names"
             );
         }
     }

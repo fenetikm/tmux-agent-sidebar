@@ -13,6 +13,9 @@ Claude Code is the reference agent for the sidebar — every feature is wired th
 - Prompt text from `UserPromptSubmit`
 - Response preview (`▷ …`) from `Stop`
 - Elapsed time since the last prompt
+- Claude `/rename` labels in pane rows when available
+
+Set `@sidebar_show_session_names` to `off` if you prefer pane rows to always show `claude` instead of `/rename` labels. See [tmux options](/tmux-agent-sidebar/reference/tmux-options/).
 
 ### Attention cues
 

@@ -84,12 +84,21 @@ bind-key M-L run-shell '"#{@agent_sidebar_bin}" focus notification --scope sessi
 
 `focus notification` jumps to the pane whose desktop notification fired most recently, across every session unless you add `--scope session`. It follows your notification settings: an event that never produced a desktop notification is invisible to it.
 
-To exclude sessions from automatic sidebar creation:
+Common options:
 
 | Option | Default | Description |
 | --- | --- | --- |
 | `@sidebar_exclude_sessions` | empty/unset | Space-separated glob patterns (`*` and `?`); sessions whose name matches any pattern are excluded from automatic sidebar creation (`toggle-all` and the new-window hook). Manual toggle still works. Example: `*_popup_* scratch`. |
 | `@sidebar_exclude_windows` | empty/unset | Space-separated glob patterns (`*` and `?`); windows whose name matches any pattern are excluded from automatic sidebar creation (`toggle-all` and the new-window hook). Manual toggle still works. Example: `logs scratch-?`. |
+| `@sidebar_show_session_names` | `on` | Show Claude `/rename` session labels in pane rows. Set `off` to always show the agent label (`claude`, `codex`, `opencode`). |
+
+To stop pane titles switching between `claude` and Claude `/rename` labels, add this before loading the plugin:
+
+```tmux
+set -g @sidebar_show_session_names off
+```
+
+After changing it in an existing tmux server, reload `tmux.conf` and restart existing sidebar panes (`prefix + E` twice) because the option is read when each sidebar starts.
 
 ## Documentation
 

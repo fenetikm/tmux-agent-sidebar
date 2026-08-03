@@ -138,6 +138,9 @@ pub struct AppState {
     /// Whether the pet animation is drawn and ticked. Loaded once at startup
     /// from the `@sidebar_pet` tmux option. Defaults to `false`.
     pub pet_enabled: bool,
+    /// Whether Claude `/rename` session labels replace the agent label in pane
+    /// status rows. Loaded once at startup from `@sidebar_show_session_names`.
+    pub show_session_names: bool,
 }
 
 impl AppState {
@@ -186,6 +189,7 @@ impl AppState {
             bottom_panel_height: crate::ui::BOTTOM_PANEL_HEIGHT,
             sessions: SessionNamesState::new(),
             pet_enabled: false,
+            show_session_names: true,
         };
         crate::state::pet::reseed_pet_idle_motion(&mut state);
         state

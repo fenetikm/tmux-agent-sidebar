@@ -14,6 +14,7 @@ pub(super) fn status_row(
     icons: &StatusIcons,
     spinner_frame: usize,
     now: u64,
+    show_session_names: bool,
 ) -> Line<'static> {
     use crate::tmux::PermissionMode;
     let theme = ctx.theme;
@@ -21,10 +22,10 @@ pub(super) fn status_row(
     let (icon, pulse_color) = running_icon_for(&pane.status, spinner_frame, icons);
     let icon_color =
         pulse_color.unwrap_or_else(|| theme.status_color(&pane.status, pane.attention));
-    let title_raw: &str = if pane.session_name.is_empty() {
-        pane.agent.label()
-    } else {
+    let title_raw: &str = if show_session_names && !pane.session_name.is_empty() {
         &pane.session_name
+    } else {
+        pane.agent.label()
     };
     let badge = pane.permission_mode.badge();
     let elapsed = elapsed_label(pane.started_at, now);

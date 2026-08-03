@@ -22,6 +22,7 @@ use status::status_row;
 pub(super) use branch::sidebar_remove_marker_col;
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 pub(super) fn render_pane_lines_with_ports(
     pane: &crate::tmux::PaneInfo,
     git_info: &crate::group::PaneGitInfo,
@@ -35,6 +36,39 @@ pub(super) fn render_pane_lines_with_ports(
     theme: &ColorTheme,
     spinner_frame: usize,
     now: u64,
+) -> Vec<Line<'static>> {
+    render_pane_lines_with_options(
+        pane,
+        git_info,
+        ports,
+        task_progress,
+        selected,
+        active,
+        same_window,
+        width,
+        icons,
+        theme,
+        spinner_frame,
+        now,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn render_pane_lines_with_options(
+    pane: &crate::tmux::PaneInfo,
+    git_info: &crate::group::PaneGitInfo,
+    ports: Option<&[u16]>,
+    task_progress: Option<&crate::activity::TaskProgress>,
+    selected: bool,
+    active: bool,
+    same_window: bool,
+    width: usize,
+    icons: &StatusIcons,
+    theme: &ColorTheme,
+    spinner_frame: usize,
+    now: u64,
+    show_session_names: bool,
 ) -> Vec<Line<'static>> {
     let bg = if selected {
         Some(theme.selection_bg)
@@ -84,7 +118,14 @@ pub(super) fn render_pane_lines_with_ports(
     };
 
     let mut out: Vec<Line<'static>> = Vec::with_capacity(8);
-    out.push(status_row(pane, &marker_ctx, icons, spinner_frame, now));
+    out.push(status_row(
+        pane,
+        &marker_ctx,
+        icons,
+        spinner_frame,
+        now,
+        show_session_names,
+    ));
     if let Some(line) = branch_ports_row(git_info, ports, pane.sidebar_spawned, &marker_ctx) {
         out.push(line);
     }
@@ -245,6 +286,38 @@ mod tests {
         assert!(
             !status.contains("codex"),
             "agent label should be replaced by session name, got: {status}"
+        );
+    }
+
+    #[test]
+    fn render_pane_lines_can_hide_session_name() {
+        let theme = ColorTheme::default();
+        let mut p = pane(PermissionMode::Default, PaneStatus::Running, "");
+        p.session_name = "fix-csv-aliases".into();
+        let lines = render_pane_lines_with_options(
+            &p,
+            &PaneGitInfo::default(),
+            None,
+            None,
+            false,
+            false,
+            false,
+            40,
+            &StatusIcons::default(),
+            &theme,
+            0,
+            0,
+            false,
+        );
+
+        let status = line_text(&lines[0]);
+        assert!(
+            status.contains("codex"),
+            "agent label should appear when session names are hidden, got: {status}"
+        );
+        assert!(
+            !status.contains("fix-csv-aliases"),
+            "session name should be hidden, got: {status}"
         );
     }
 
@@ -1246,7 +1319,7 @@ mod tests {
         let theme = ColorTheme::default();
         let ctx = test_ctx(&theme, 40, false);
         let pane = pane(PermissionMode::Default, PaneStatus::Running, "");
-        let line = status_row(&pane, &ctx, &StatusIcons::default(), 0, 0);
+        let line = status_row(&pane, &ctx, &StatusIcons::default(), 0, 0, true);
         let text = line_text(&line);
         // Default mode has an empty badge string — no extra badge token should appear.
         assert!(
