@@ -16,7 +16,7 @@ The **Default** column shows which events fire when `@sidebar_notifications_even
 
 | Event               | Fired when                                                | Agent            | Default |
 | ------------------- | --------------------------------------------------------- | ---------------- | ------- |
-| `stop`              | Assistant finished responding (`Stop` hook)               | Claude, Codex, OpenCode | ✓       |
+| `stop`              | Assistant completed, or notable session-end event         | Claude, Codex, OpenCode | ✓       |
 | `notification`      | Permission prompt or other attention request              | Claude, OpenCode | ✓       |
 | `stop_failure`      | Assistant ended with an error (`StopFailure` hook)        | Claude, OpenCode | ✓       |
 | `permission_denied` | Permission explicitly denied (`PermissionDenied` hook)    | Claude only      | ✓       |
@@ -36,11 +36,51 @@ An empty value disables every event without touching the master `@sidebar_notifi
 
 ## Platform support
 
-- **macOS** uses `osascript`
-- **Linux** uses `notify-send`
-- **Windows** is not supported yet
+- **macOS** uses `osascript` by default. Set `@sidebar_notifications_backend` to `terminal-notifier` to enable custom icons and click scripts.
+- **Linux** uses `notify-send`.
+- **Windows** is not supported yet.
 
 If the required notification command is missing, the feature quietly disables itself.
+
+## macOS backend selection
+
+The default macOS backend has no external dependency:
+
+```bash
+set -g @sidebar_notifications_backend "osascript"
+```
+
+For custom icons and click scripts, install `terminal-notifier` separately and opt in:
+
+```bash
+brew install terminal-notifier
+set -g @sidebar_notifications_backend "terminal-notifier"
+set -g @sidebar_notifications_icon "/path/to/icon.png"
+set -g @sidebar_notifications_sound "default"
+set -g @sidebar_notifications_click_script "/path/to/focus-agent-pane.sh"
+```
+
+When `terminal-notifier` runs the click script, it passes tmux identifiers as positional arguments:
+
+```bash
+focus-agent-pane.sh "$pane_id" "$session_id" "$window_id"
+```
+
+Example click script:
+
+```bash
+#!/usr/bin/env bash
+pane_id="$1"
+session_id="$2"
+window_id="$3"
+
+osascript -e 'tell application "Ghostty" to activate'
+tmux switch-client -t "$pane_id" 2>/dev/null || tmux switch-client -t "$session_id" 2>/dev/null || true
+tmux select-window -t "$window_id" 2>/dev/null || true
+tmux select-pane -t "$pane_id" 2>/dev/null || true
+```
+
+`osascript` ignores `@sidebar_notifications_icon` and `@sidebar_notifications_click_script`; it only supports title, body, and sound.
 
 ## Notification layout
 

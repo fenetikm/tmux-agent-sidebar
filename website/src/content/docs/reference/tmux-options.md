@@ -21,7 +21,11 @@ Most options must be set **before** loading the plugin in your `tmux.conf`. Colo
 | `@sidebar_auto_create_delay`     | `0`     | Seconds to defer auto-create after a window opens, so a declaratively-built window (e.g. tmuxinator's `select-layout`) finishes before the sidebar pane is injected; accepts fractional seconds. `0` keeps the create synchronous |
 | `@sidebar_notifications`         | `on`    | Master switch for desktop notifications                                                 |
 | `@sidebar_notifications_events`  | unset   | Restrict events — see [Notifications](/tmux-agent-sidebar/features/notifications/)       |
-| `@sidebar_pet`                  | `off`   | Show the animated pet in a 5-row band above the bottom panel                           |
+| `@sidebar_notifications_backend` | `osascript` | macOS notification backend (`osascript` or `terminal-notifier`)                         |
+| `@sidebar_notifications_icon`    | unset   | Icon path passed to `terminal-notifier -appIcon`; ignored by `osascript`                 |
+| `@sidebar_notifications_click_script` | unset | Script run by `terminal-notifier` on notification click; receives pane, session, and window ids |
+| `@sidebar_notifications_sound`   | unset   | Notification sound name passed to `osascript` or `terminal-notifier`                    |
+| `@sidebar_pet`                   | `off`   | Show the animated pet in a 5-row band above the bottom panel                            |
 
 Set `@sidebar_show_session_names` to `off` if you want pane rows to keep showing the agent label instead of switching to Claude `/rename` labels:
 

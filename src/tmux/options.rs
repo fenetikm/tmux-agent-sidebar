@@ -93,6 +93,10 @@ pub const SIDEBAR_PET: &str = "@sidebar_pet";
 pub const SIDEBAR_SHOW_SESSION_NAMES: &str = "@sidebar_show_session_names";
 pub const SIDEBAR_NOTIFICATIONS: &str = "@sidebar_notifications";
 pub const SIDEBAR_NOTIFICATIONS_EVENTS: &str = "@sidebar_notifications_events";
+pub const SIDEBAR_NOTIFICATIONS_BACKEND: &str = "@sidebar_notifications_backend";
+pub const SIDEBAR_NOTIFICATIONS_ICON: &str = "@sidebar_notifications_icon";
+pub const SIDEBAR_NOTIFICATIONS_CLICK_SCRIPT: &str = "@sidebar_notifications_click_script";
+pub const SIDEBAR_NOTIFICATIONS_SOUND: &str = "@sidebar_notifications_sound";
 /// Whitespace-separated glob patterns of session names excluded from automatic
 /// sidebar creation, sidebar agent visibility, and focus targets. Unset/empty
 /// => no exclusions. Manual `toggle` (the `e` key) ignores this list.
