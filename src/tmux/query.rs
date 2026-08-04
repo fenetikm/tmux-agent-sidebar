@@ -288,11 +288,16 @@ fn parse_pane_fields_with_processes(
         return None;
     }
 
-    let agent = AgentType::from_label(&parts[pane_line_field::AGENT])?;
-    let current_command = parts[pane_line_field::PANE_CURRENT_COMMAND].as_str();
     let pane_pid: Option<u32> = parts[pane_line_field::PANE_PID].parse().ok();
+    let current_command = parts[pane_line_field::PANE_CURRENT_COMMAND].as_str();
 
-    // Codex / OpenCode panes can leave stale tmux metadata behind after the
+    let agent = AgentType::from_label(&parts[pane_line_field::AGENT]).or_else(|| {
+        pane_pid.and_then(|pid| {
+            process_snapshot.and_then(|snapshot| snapshot.detect_agent_in_tree(&[pid]))
+        })
+    })?;
+
+    // Codex / OpenCode / Cursor panes can leave stale tmux metadata behind after the
     // agent exits and the pane falls back to the user's shell. Neither
     // agent exposes a reliable "process exit" hook (Codex has no such
     // hook, OpenCode runs under Bun where `process.on("exit")` does not
@@ -301,14 +306,18 @@ fn parse_pane_fields_with_processes(
     // is gone. Subsequent polls short-circuit at the `AgentType::from_label`
     // check above once `@pane_agent` has been cleared. Claude is excluded
     // because its SessionEnd hook drives cleanup instead.
-    if matches!(agent, AgentType::Codex | AgentType::OpenCode) && is_shell_command(current_command)
+    if matches!(
+        agent,
+        AgentType::Codex | AgentType::OpenCode | AgentType::Cursor
+    ) && is_shell_command(current_command)
     {
-        let agent_still_alive = pane_pid
-            .and_then(|pid| {
-                process_snapshot.map(|snapshot| snapshot.tree_has_agent(&[pid], &agent))
-            })
-            .unwrap_or(false);
-        if !agent_still_alive {
+        let proven_dead = match (pane_pid, process_snapshot) {
+            (Some(pid), Some(snapshot)) => !snapshot.tree_has_agent(&[pid], &agent),
+            // Without a process snapshot we cannot prove the agent exited —
+            // keep hook metadata rather than clearing on a failed ps scan.
+            _ => false,
+        };
+        if proven_dead {
             clear_agent_pane_state(&parts[pane_line_field::PANE_ID]);
             return None;
         }
@@ -377,13 +386,13 @@ fn parse_pane_fields_with_processes(
 }
 
 /// Wipe all agent-tracked tmux pane options and the activity log file for
-/// `pane_id`. Triggered by `parse_pane_fields` when it detects a Codex or
-/// OpenCode pane that has dropped back to the user's shell, since neither
-/// CLI fires a reliable process-exit hook. Claude panes are never routed
-/// here because Claude has its own SessionEnd hook. The set of keys
-/// mirrors `clear_all_meta` + `clear_run_state` + status/attention clears
-/// in `src/cli/hook/context.rs`; keep them in sync when a new `@pane_*`
-/// key is added.
+/// `pane_id`. Triggered by `parse_pane_fields` when it detects a Codex,
+/// OpenCode, or Cursor pane that has dropped back to the user's shell, since
+/// none of those CLIs fire a reliable process-exit hook in every exit path.
+/// Claude panes are never routed here because Claude has its own SessionEnd
+/// hook. The set of keys mirrors `clear_all_meta` + `clear_run_state` +
+/// status/attention clears in `src/cli/hook/context.rs`; keep them in sync
+/// when a new `@pane_*` key is added.
 fn clear_agent_pane_state(pane_id: &str) {
     const KEYS: &[&str] = &[
         PANE_AGENT,
@@ -457,22 +466,8 @@ fn detect_codex_permission_mode(args: &str) -> PermissionMode {
 }
 
 fn process_snapshot_for_panes(all_panes_output: &str) -> Option<ProcessSnapshot> {
-    if !pane_output_needs_process_snapshot(all_panes_output) {
-        return None;
-    }
+    let _ = all_panes_output;
     ProcessSnapshot::scan()
-}
-
-fn pane_output_needs_process_snapshot(all_panes_output: &str) -> bool {
-    all_panes_output.lines().any(|line| {
-        let parts = split_tmux_fields(line, '|');
-        if parts.len() < session_line_field::MIN_FIELDS {
-            return false;
-        }
-        let pane_fields = &parts[session_line_field::PANE_LINE_OFFSET..];
-        AgentType::from_label(&pane_fields[pane_line_field::AGENT])
-            .is_some_and(|agent| matches!(agent, AgentType::Codex | AgentType::OpenCode))
-    })
 }
 
 fn apply_codex_permission_modes(
@@ -982,11 +977,13 @@ mod tests {
     #[test]
     fn parse_pane_line_rejects_stale_codex_shell_pane() {
         let mut fields = full_fields();
-        fields[3] = "codex";
-        fields[6] = "zsh";
-        let line = make_pane_line(&fields);
+        fields[pane_line_field::AGENT] = "codex";
+        fields[pane_line_field::PANE_CURRENT_COMMAND] = "zsh";
+        fields[pane_line_field::PANE_PID] = "500";
+        let fields = field_strings(&fields);
+        let snapshot = process_snapshot("500 1 zsh zsh\n");
         assert!(
-            parse_pane_line(&line).is_none(),
+            parse_pane_fields_with_processes(&fields, Some(&snapshot)).is_none(),
             "codex metadata on a shell pane should be treated as stale"
         );
     }
@@ -994,11 +991,13 @@ mod tests {
     #[test]
     fn parse_pane_line_rejects_stale_codex_shell_pane_with_path_and_args() {
         let mut fields = full_fields();
-        fields[3] = "codex";
-        fields[6] = "/usr/local/bin/PwSh -l";
-        let line = make_pane_line(&fields);
+        fields[pane_line_field::AGENT] = "codex";
+        fields[pane_line_field::PANE_CURRENT_COMMAND] = "/usr/local/bin/PwSh -l";
+        fields[pane_line_field::PANE_PID] = "501";
+        let fields = field_strings(&fields);
+        let snapshot = process_snapshot("501 1 PwSh /usr/local/bin/PwSh -l\n");
         assert!(
-            parse_pane_line(&line).is_none(),
+            parse_pane_fields_with_processes(&fields, Some(&snapshot)).is_none(),
             "shell detection should handle paths, args, and case differences"
         );
     }
@@ -1086,6 +1085,49 @@ mod tests {
     }
 
     #[test]
+    fn parse_pane_fields_discovers_cursor_from_process_without_hook_metadata() {
+        let mut fields = full_fields();
+        fields[pane_line_field::PANE_ID] = "%CURSOR_DISCOVER";
+        fields[pane_line_field::AGENT] = "";
+        fields[pane_line_field::PANE_CURRENT_COMMAND] = "zsh";
+        fields[pane_line_field::PANE_PID] = "300";
+        let fields = field_strings(&fields);
+        let snapshot =
+            process_snapshot("300 1 zsh zsh\n301 300 agent /Users/me/.local/bin/index.js\n");
+
+        let pane = parse_pane_fields_with_processes(&fields, Some(&snapshot))
+            .expect("running Cursor CLI should be discovered from the process tree");
+
+        assert_eq!(pane.agent, AgentType::Cursor);
+        assert_eq!(pane.pane_id, "%CURSOR_DISCOVER");
+    }
+
+    #[test]
+    fn parse_pane_fields_keeps_cursor_shell_pane_when_process_snapshot_missing() {
+        let _guard = test_mock::install();
+        let pane = "%CURSOR_NO_PS";
+        test_mock::set(pane, PANE_AGENT, "cursor");
+        test_mock::set(pane, PANE_PROMPT, "keep me");
+
+        let mut fields = full_fields();
+        fields[pane_line_field::PANE_ID] = pane;
+        fields[pane_line_field::AGENT] = "cursor";
+        fields[pane_line_field::PANE_CURRENT_COMMAND] = "zsh";
+        fields[pane_line_field::PANE_PID] = "400";
+        let fields = field_strings(&fields);
+
+        let pane_info = parse_pane_fields_with_processes(&fields, None)
+            .expect("missing ps snapshot must not clear cursor hook metadata");
+
+        assert_eq!(pane_info.agent, AgentType::Cursor);
+        assert!(test_mock::contains(pane, PANE_AGENT));
+        assert_eq!(
+            test_mock::get(pane, PANE_PROMPT).as_deref(),
+            Some("keep me")
+        );
+    }
+
+    #[test]
     fn parse_pane_line_wipes_stale_state_for_codex_shell_pane() {
         // Codex shares the same shell-fallback sweep path as OpenCode —
         // neither fires a reliable process-exit hook, so the Rust poller
@@ -1108,9 +1150,11 @@ mod tests {
         fields[pane_line_field::PANE_ID] = pane;
         fields[pane_line_field::AGENT] = "codex";
         fields[pane_line_field::PANE_CURRENT_COMMAND] = "zsh";
-        let line = make_pane_line(&fields);
+        fields[pane_line_field::PANE_PID] = "600";
+        let fields = field_strings(&fields);
+        let snapshot = process_snapshot("600 1 zsh zsh\n");
 
-        assert!(parse_pane_line(&line).is_none());
+        assert!(parse_pane_fields_with_processes(&fields, Some(&snapshot)).is_none());
         for key in &[
             PANE_AGENT,
             PANE_PROMPT,
@@ -1155,9 +1199,11 @@ mod tests {
         fields[pane_line_field::PANE_ID] = pane;
         fields[pane_line_field::AGENT] = "opencode";
         fields[pane_line_field::PANE_CURRENT_COMMAND] = "fish";
-        let line = make_pane_line(&fields);
+        fields[pane_line_field::PANE_PID] = "700";
+        let fields = field_strings(&fields);
+        let snapshot = process_snapshot("700 1 fish fish\n");
 
-        assert!(parse_pane_line(&line).is_none());
+        assert!(parse_pane_fields_with_processes(&fields, Some(&snapshot)).is_none());
         for key in &[
             PANE_AGENT,
             PANE_PROMPT,

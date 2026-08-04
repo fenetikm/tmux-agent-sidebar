@@ -89,13 +89,20 @@ impl ProcessSnapshot {
     }
 
     pub(crate) fn tree_has_agent(&self, seed_pids: &[u32], agent: &AgentType) -> bool {
-        let agent_name = agent.as_str();
         self.descendants(seed_pids).into_iter().any(|pid| {
             self.info_by_pid
                 .get(&pid)
-                .map(|info| process_matches_agent(info, agent_name))
+                .map(|info| process_matches_agent(info, agent))
                 .unwrap_or(false)
         })
+    }
+
+    /// Infer which agent (if any) is running under `seed_pids`. Used when
+    /// `@pane_agent` was cleared while the CLI process is still alive.
+    pub(crate) fn detect_agent_in_tree(&self, seed_pids: &[u32]) -> Option<AgentType> {
+        self.descendants(seed_pids)
+            .into_iter()
+            .find_map(|pid| self.info_by_pid.get(&pid).and_then(process_indicates_agent))
     }
 
     pub(crate) fn command_lines_for_tree(&self, seed_pids: &[u32]) -> Vec<String> {
@@ -120,15 +127,43 @@ pub(crate) fn command_basename(command: &str) -> &str {
         .unwrap_or(command)
 }
 
-pub(crate) fn process_matches_agent(info: &ProcessInfo, agent_name: &str) -> bool {
-    if command_basename(&info.comm) == agent_name {
+fn process_matches_basename(info: &ProcessInfo, basename: &str) -> bool {
+    if command_basename(&info.comm) == basename {
         return true;
     }
 
     let Some(command) = info.args.split_whitespace().next() else {
         return false;
     };
-    command_basename(command.trim_matches('"')) == agent_name
+    command_basename(command.trim_matches('"')) == basename
+}
+
+fn cursor_cli_process(info: &ProcessInfo) -> bool {
+    process_matches_basename(info, "cursor")
+        || (process_matches_basename(info, "agent") && info.args.contains("index.js"))
+}
+
+fn process_indicates_agent(info: &ProcessInfo) -> Option<AgentType> {
+    if process_matches_basename(info, "claude") {
+        return Some(AgentType::Claude);
+    }
+    if process_matches_basename(info, "codex") {
+        return Some(AgentType::Codex);
+    }
+    if process_matches_basename(info, "opencode") {
+        return Some(AgentType::OpenCode);
+    }
+    if cursor_cli_process(info) {
+        return Some(AgentType::Cursor);
+    }
+    None
+}
+
+pub(crate) fn process_matches_agent(info: &ProcessInfo, agent: &AgentType) -> bool {
+    match agent {
+        AgentType::Cursor => cursor_cli_process(info),
+        _ => process_matches_basename(info, agent.as_str()),
+    }
 }
 
 #[cfg(test)]
@@ -178,21 +213,52 @@ mod tests {
                 comm: "claude".to_string(),
                 args: "/opt/homebrew/bin/claude --flag".to_string(),
             },
-            "claude",
+            &AgentType::Claude,
         ));
         assert!(process_matches_agent(
             &ProcessInfo {
                 comm: "node".to_string(),
                 args: "/usr/local/bin/opencode".to_string(),
             },
-            "opencode",
+            &AgentType::OpenCode,
         ));
         assert!(!process_matches_agent(
             &ProcessInfo {
                 comm: "not-opencode".to_string(),
                 args: "/usr/local/bin/not-opencode".to_string(),
             },
-            "opencode",
+            &AgentType::OpenCode,
         ));
+    }
+
+    #[test]
+    fn tree_has_agent_matches_cursor_cli_as_agent_process() {
+        let snapshot = ProcessSnapshot::from_ps_output(
+            "100 1 zsh zsh\n101 100 agent /Users/me/.local/bin/index.js\n",
+        );
+
+        assert!(snapshot.tree_has_agent(&[100], &AgentType::Cursor));
+        assert!(!snapshot.tree_has_agent(&[100], &AgentType::Claude));
+    }
+
+    #[test]
+    fn detect_agent_in_tree_discovers_cursor_cli_without_metadata() {
+        let snapshot = ProcessSnapshot::from_ps_output(
+            "100 1 zsh zsh\n101 100 agent /Users/me/.local/bin/index.js\n",
+        );
+
+        assert_eq!(
+            snapshot.detect_agent_in_tree(&[100]),
+            Some(AgentType::Cursor)
+        );
+    }
+
+    #[test]
+    fn detect_agent_in_tree_ignores_unrelated_agent_binary() {
+        let snapshot = ProcessSnapshot::from_ps_output(
+            "100 1 zsh zsh\n101 100 agent /usr/local/bin/other-agent\n",
+        );
+
+        assert_eq!(snapshot.detect_agent_in_tree(&[100]), None);
     }
 }
