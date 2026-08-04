@@ -121,6 +121,7 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
                 state.spinner_frame,
                 state.now,
                 state.show_session_names,
+                state.compact_rows,
             );
             let pane_line_count = pane_lines.len();
             collected.lines.extend(pane_lines);
@@ -134,7 +135,11 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
             // trailing `×` from the row helper so the click target
             // lines up with the rendered glyph even when the branch
             // name truncates.
-            if pane.sidebar_spawned
+            // Compact rows draw no `×`, so registering a target would put a
+            // destructive click behind an invisible affordance. Removal is
+            // still reachable there via the `x` keybinding.
+            if !state.compact_rows
+                && pane.sidebar_spawned
                 && git_info.is_worktree
                 && pane_line_count >= 2
                 && let Some(x) =
@@ -291,5 +296,49 @@ mod tests {
         ];
         let collected = collect(&state, 40);
         assert_eq!(collected.pending_spawn.len(), 3);
+    }
+
+    /// A sidebar-spawned worktree pane, which is the only shape that earns
+    /// a trailing `×` remove marker.
+    fn state_with_spawned_worktree() -> AppState {
+        let mut state = AppState::new("%0".into());
+        let mut pane = make_pane("%1", PaneStatus::Running);
+        pane.sidebar_spawned = true;
+        state.repo_groups = vec![RepoGroup {
+            name: "repo".into(),
+            has_focus: false,
+            panes: vec![(
+                pane,
+                PaneGitInfo {
+                    repo_root: Some("/tmp/repo".into()),
+                    branch: Some("feat/thing".into()),
+                    is_worktree: true,
+                    worktree_name: None,
+                },
+            )],
+        }];
+        state
+    }
+
+    #[test]
+    fn collect_registers_remove_target_when_expanded() {
+        let state = state_with_spawned_worktree();
+        let collected = collect(&state, 40);
+        assert_eq!(
+            collected.pending_remove.len(),
+            1,
+            "expanded rows draw the × marker and must stay clickable"
+        );
+    }
+
+    #[test]
+    fn collect_skips_remove_target_when_compact() {
+        let mut state = state_with_spawned_worktree();
+        state.compact_rows = true;
+        let collected = collect(&state, 40);
+        assert!(
+            collected.pending_remove.is_empty(),
+            "compact rows draw no × marker, so no click target may be registered"
+        );
     }
 }

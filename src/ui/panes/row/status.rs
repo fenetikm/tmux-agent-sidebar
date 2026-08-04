@@ -4,9 +4,24 @@ use ratatui::{
 };
 
 use super::ctx::RowCtx;
-use crate::tmux::PaneStatus;
+use crate::tmux::{PaneStatus, PermissionMode};
+use crate::ui::colors::ColorTheme;
 use crate::ui::icons::StatusIcons;
 use crate::ui::text::{display_width, elapsed_label, truncate_to_width};
+
+/// Colour for a permission-mode badge. Shared by the expanded status row
+/// and the compact header line so the two cannot drift apart.
+pub(super) fn badge_color(mode: &PermissionMode, theme: &ColorTheme) -> Color {
+    match mode {
+        PermissionMode::BypassPermissions => theme.badge_danger,
+        PermissionMode::Auto => theme.badge_auto,
+        PermissionMode::DontAsk => theme.badge_auto,
+        PermissionMode::Plan => theme.badge_plan,
+        PermissionMode::AcceptEdits => theme.badge_auto,
+        PermissionMode::Defer => theme.badge_auto,
+        PermissionMode::Default => theme.text_muted,
+    }
+}
 
 pub(super) fn status_row(
     pane: &crate::tmux::PaneInfo,
@@ -16,7 +31,6 @@ pub(super) fn status_row(
     now: u64,
     show_session_names: bool,
 ) -> Line<'static> {
-    use crate::tmux::PermissionMode;
     let theme = ctx.theme;
 
     let (icon, pulse_color) = running_icon_for(&pane.status, spinner_frame, icons);
@@ -65,18 +79,9 @@ pub(super) fn status_row(
         ctx.apply_bg(Style::default().fg(title_fg)),
     ));
     if !badge.is_empty() {
-        let badge_color = match pane.permission_mode {
-            PermissionMode::BypassPermissions => theme.badge_danger,
-            PermissionMode::Auto => theme.badge_auto,
-            PermissionMode::DontAsk => theme.badge_auto,
-            PermissionMode::Plan => theme.badge_plan,
-            PermissionMode::AcceptEdits => theme.badge_auto,
-            PermissionMode::Defer => theme.badge_auto,
-            PermissionMode::Default => theme.text_muted,
-        };
         left_spans.push(Span::styled(
             format!(" {}", badge),
-            ctx.apply_bg(Style::default().fg(badge_color)),
+            ctx.apply_bg(Style::default().fg(badge_color(&pane.permission_mode, theme))),
         ));
     }
 

@@ -99,6 +99,21 @@ impl AppState {
         }
     }
 
+    /// Flip compact rows and persist the choice to `@sidebar_compact`.
+    ///
+    /// Persistence is write-on-toggle and read-at-startup only — there is
+    /// no sync-back from tmux, so a failed write costs the setting on the
+    /// next launch and nothing more. That is why this needs none of the
+    /// `last_saved_*` bookkeeping `GlobalState::save_filter` carries.
+    ///
+    /// Row heights change, so the click hit-test targets must be rebuilt.
+    pub fn toggle_compact_rows(&mut self) {
+        self.compact_rows = !self.compact_rows;
+        let value = if self.compact_rows { "on" } else { "off" };
+        crate::tmux::run_tmux(&["set", "-g", crate::tmux::SIDEBAR_COMPACT, value]);
+        self.rebuild_row_targets();
+    }
+
     /// Handle mouse scroll event, routing to agents or bottom panel based on Y position.
     pub fn handle_mouse_scroll(
         &mut self,

@@ -415,3 +415,104 @@ fn repo_popup_highlights_selected_entry_with_background() {
     ╰[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]╯[fg:240]
     ");
 }
+
+// ─── Compact display mode ───────────────────────────────────────────
+
+/// Three agents in one repo, each in a different state, so one frame
+/// exercises the header composition and several line-2 branches at once.
+fn compact_state() -> tmux_agent_sidebar::state::AppState {
+    let mut running = make_pane(AgentType::Claude, PaneStatus::Running);
+    running.pane_id = "%1".into();
+    running.permission_mode = tmux_agent_sidebar::tmux::PermissionMode::Auto;
+    running.started_at = Some(FIXED_NOW - 200);
+    running.prompt = "Add a compact display mode for agent entries".into();
+
+    let mut waiting = make_pane(AgentType::Codex, PaneStatus::Waiting);
+    waiting.pane_id = "%2".into();
+    waiting.started_at = Some(FIXED_NOW - 40);
+    waiting.wait_reason = "permission_prompt".into();
+    waiting.prompt = "this prompt must lose to the wait reason".into();
+
+    let mut idle = make_pane(AgentType::OpenCode, PaneStatus::Idle);
+    idle.pane_id = "%3".into();
+    idle.started_at = Some(FIXED_NOW - 3700);
+
+    let mut state = make_state(vec![]);
+    state.repo_groups = vec![make_repo_group("project", vec![running, waiting, idle])];
+    state.focus_state.focus = Focus::Panes;
+    state.compact_rows = true;
+    state.rebuild_row_targets();
+    state
+}
+
+#[test]
+fn snapshot_compact_rows_are_two_lines_each() {
+    let mut state = compact_state();
+    let output = render_to_string(&mut state, 44, 26);
+    insta::assert_snapshot!(output, @r"
+     ≡3  ●1  ◎0  ◐1  ○1  ✕0
+    ⓘ                                        — ▾
+    project
+    ┃ ● ✳ auto                             3m20s
+        Add a compact display mode for agent en…
+    ╭ Activity │ Git ──────────────────────────╮
+    │              No activity yet             │
+    ╰──────────────────────────────────────────╯
+    ");
+}
+
+#[test]
+fn snapshot_compact_rows_at_narrow_width() {
+    let mut state = compact_state();
+    let output = render_to_string(&mut state, 26, 26);
+    insta::assert_snapshot!(output, @r"
+     ≡3  ●1  ◎0  ◐1  ○1  ✕0
+    ⓘ                      — ▾
+    project
+    ┃ ● ✳ auto           3m20s
+        Add a compact display…
+    ╭ Activity │ Git ────────╮
+    │     No activity yet    │
+    ╰────────────────────────╯
+    ");
+}
+
+#[test]
+fn snapshot_expanded_rows_unchanged_when_compact_is_off() {
+    let mut state = compact_state();
+    state.compact_rows = false;
+    let output = render_to_string(&mut state, 44, 30);
+    insta::assert_snapshot!(output, @r"
+     ≡3  ●1  ◎0  ◐1  ○1  ✕0
+    ⓘ                                        — ▾
+    project
+    ┃ ● claude auto                        3m20s
+        Add a compact display mode for agent
+        entries
+      ◐ codex                                40s
+        permission required
+        this prompt must lose to the wait reason
+    ╭ Activity │ Git ──────────────────────────╮
+    │              No activity yet             │
+    ╰──────────────────────────────────────────╯
+    ");
+}
+
+#[test]
+fn compact_rows_reduce_total_rendered_lines() {
+    // Non-visual: the whole point of the mode is fewer lines for the
+    // same agents, so assert the height relationship directly.
+    let mut expanded = compact_state();
+    expanded.compact_rows = false;
+    let _ = render_to_string(&mut expanded, 44, 40);
+    let expanded_lines = expanded.scrolls.panes.total_lines;
+
+    let mut compact = compact_state();
+    let _ = render_to_string(&mut compact, 44, 40);
+    let compact_lines = compact.scrolls.panes.total_lines;
+
+    assert!(
+        compact_lines < expanded_lines,
+        "compact ({compact_lines}) should use fewer lines than expanded ({expanded_lines})"
+    );
+}

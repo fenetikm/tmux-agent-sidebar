@@ -141,6 +141,10 @@ pub struct AppState {
     /// Whether Claude `/rename` session labels replace the agent label in pane
     /// status rows. Loaded once at startup from `@sidebar_show_session_names`.
     pub show_session_names: bool,
+    /// Render every agent entry in exactly two lines instead of the
+    /// variable-height detail rows. Loaded at startup from
+    /// `@sidebar_compact` and toggled at runtime by `c`.
+    pub compact_rows: bool,
 }
 
 impl AppState {
@@ -190,6 +194,7 @@ impl AppState {
             sessions: SessionNamesState::new(),
             pet_enabled: false,
             show_session_names: true,
+            compact_rows: false,
         };
         crate::state::pet::reseed_pet_idle_motion(&mut state);
         state

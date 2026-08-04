@@ -136,6 +136,9 @@ pub(super) fn handle_key_event(
         KeyCode::Char('x') if state.focus_state.focus == Focus::Panes => {
             state.open_remove_confirm();
         }
+        KeyCode::Char('c') if state.focus_state.focus == Focus::Panes => {
+            state.toggle_compact_rows();
+        }
         KeyCode::Enter if state.focus_state.focus == Focus::Panes => {
             state.activate_selected_pane();
         }
@@ -341,5 +344,26 @@ mod tests {
         // Below 0 the popup nav helper is a no-op.
         handle_key_event(ctrl_key('p'), &mut state, &flag);
         assert_eq!(state.repo_popup_selected(), 0);
+    }
+
+    #[test]
+    fn bare_c_toggles_compact_rows_in_panes_focus() {
+        let mut state = state_with_three_panes();
+        let flag = AtomicBool::new(false);
+        assert!(!state.compact_rows, "compact mode starts off");
+        handle_key_event(key(KeyCode::Char('c')), &mut state, &flag);
+        assert!(state.compact_rows, "c enables compact mode");
+        handle_key_event(key(KeyCode::Char('c')), &mut state, &flag);
+        assert!(!state.compact_rows, "c disables compact mode again");
+    }
+
+    #[test]
+    fn bare_c_does_not_move_selection() {
+        // The `c` arm must not shadow navigation or selection state.
+        let mut state = state_with_three_panes();
+        state.global.selected_pane_row = 1;
+        let flag = AtomicBool::new(false);
+        handle_key_event(key(KeyCode::Char('c')), &mut state, &flag);
+        assert_eq!(state.global.selected_pane_row, 1);
     }
 }

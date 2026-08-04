@@ -12,6 +12,12 @@ pub struct StatusIcons {
     idle: String,
     error: String,
     unknown: String,
+    /// Per-provider glyphs. Only compact rows render these; expanded rows
+    /// carry provider identity in the title colour instead.
+    agent_claude: String,
+    agent_codex: String,
+    agent_opencode: String,
+    agent_unknown: String,
 }
 
 impl Default for StatusIcons {
@@ -24,6 +30,10 @@ impl Default for StatusIcons {
             idle: "○".into(),
             error: "✕".into(),
             unknown: "·".into(),
+            agent_claude: "✳".into(),
+            agent_codex: "◆".into(),
+            agent_opencode: "◇".into(),
+            agent_unknown: "·".into(),
         }
     }
 }
@@ -54,6 +64,18 @@ impl StatusIcons {
         icons.idle = read(tmux::SIDEBAR_ICON_IDLE, &icons.idle);
         icons.error = read(tmux::SIDEBAR_ICON_ERROR, &icons.error);
         icons.unknown = read(tmux::SIDEBAR_ICON_UNKNOWN, &icons.unknown);
+        let read_agent = |var: &str, fallback: &str| -> String {
+            match all_opts.get(var) {
+                None => fallback.to_string(),
+                Some(s) if s.is_empty() => String::new(),
+                Some(s) if s.trim().is_empty() => fallback.to_string(),
+                Some(s) => s.trim().to_string(),
+            }
+        };
+        icons.agent_claude = read_agent(tmux::SIDEBAR_ICON_AGENT_CLAUDE, &icons.agent_claude);
+        icons.agent_codex = read_agent(tmux::SIDEBAR_ICON_AGENT_CODEX, &icons.agent_codex);
+        icons.agent_opencode = read_agent(tmux::SIDEBAR_ICON_AGENT_OPENCODE, &icons.agent_opencode);
+        icons.agent_unknown = read_agent(tmux::SIDEBAR_ICON_AGENT_UNKNOWN, &icons.agent_unknown);
         icons
     }
 
@@ -70,6 +92,19 @@ impl StatusIcons {
             PaneStatus::Idle => self.idle.as_str(),
             PaneStatus::Error => self.error.as_str(),
             PaneStatus::Unknown => self.unknown.as_str(),
+        }
+    }
+
+    /// Glyph identifying which agent owns a pane. `AgentType::Unknown` is
+    /// currently unreachable because `AgentType::from_label` returns `None`
+    /// for unrecognised labels, but it carries a glyph so the match stays
+    /// exhaustive if that changes.
+    pub fn agent_icon(&self, agent: &tmux::AgentType) -> &str {
+        match agent {
+            tmux::AgentType::Claude => self.agent_claude.as_str(),
+            tmux::AgentType::Codex => self.agent_codex.as_str(),
+            tmux::AgentType::OpenCode => self.agent_opencode.as_str(),
+            tmux::AgentType::Unknown => self.agent_unknown.as_str(),
         }
     }
 }
@@ -104,5 +139,35 @@ mod tests {
         assert_eq!(icons.status_icon(&PaneStatus::Background), "⊙");
         assert_eq!(icons.status_icon(&PaneStatus::Unknown), "∎");
         assert_eq!(icons.status_icon(&PaneStatus::Waiting), "◐");
+    }
+
+    #[test]
+    fn default_agent_icons_match_current_glyphs() {
+        let icons = StatusIcons::default();
+        assert_eq!(icons.agent_icon(&tmux::AgentType::Claude), "✳");
+        assert_eq!(icons.agent_icon(&tmux::AgentType::Codex), "◆");
+        assert_eq!(icons.agent_icon(&tmux::AgentType::OpenCode), "◇");
+        assert_eq!(icons.agent_icon(&tmux::AgentType::Unknown), "·");
+    }
+
+    #[test]
+    fn tmux_options_override_agent_icons() {
+        let mut opts = HashMap::new();
+        opts.insert(tmux::SIDEBAR_ICON_AGENT_CLAUDE.into(), "".into());
+        opts.insert(tmux::SIDEBAR_ICON_AGENT_CODEX.into(), "".into());
+
+        let icons = StatusIcons::from_options(&opts);
+        assert_eq!(icons.agent_icon(&tmux::AgentType::Claude), "");
+        assert_eq!(icons.agent_icon(&tmux::AgentType::Codex), "");
+        // Untouched providers keep their defaults.
+        assert_eq!(icons.agent_icon(&tmux::AgentType::OpenCode), "◇");
+    }
+
+    #[test]
+    fn empty_agent_icon_option_falls_back_to_default() {
+        let mut opts = HashMap::new();
+        opts.insert(tmux::SIDEBAR_ICON_AGENT_CLAUDE.into(), "   ".into());
+        let icons = StatusIcons::from_options(&opts);
+        assert_eq!(icons.agent_icon(&tmux::AgentType::Claude), "✳");
     }
 }

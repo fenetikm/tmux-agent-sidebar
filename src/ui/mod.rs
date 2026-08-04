@@ -66,6 +66,21 @@ pub fn show_session_names_from_tmux() -> bool {
     show_session_names_from_options(&opts)
 }
 
+/// Read `@sidebar_compact` from tmux global options, defaulting to `false`
+/// so existing users keep the variable-height rows.
+/// Accepts `on`/`off`, `true`/`false`, `1`/`0` (case-insensitive).
+pub fn compact_rows_from_options(opts: &HashMap<String, String>) -> bool {
+    opts.get(tmux::SIDEBAR_COMPACT)
+        .map(|s| s.trim().to_ascii_lowercase())
+        .map(|s| matches!(s.as_str(), "on" | "true" | "1" | "yes"))
+        .unwrap_or(false)
+}
+
+pub fn compact_rows_from_tmux() -> bool {
+    let opts = crate::tmux::get_all_global_options();
+    compact_rows_from_options(&opts)
+}
+
 // ── public entry point ──────────────────────────────────────────────
 
 pub fn draw(frame: &mut Frame, state: &mut AppState) {
@@ -201,6 +216,36 @@ mod tests {
             assert!(
                 show_session_names_from_options(&opts),
                 "expected {value} to enable session names"
+            );
+        }
+    }
+
+    #[test]
+    fn compact_rows_defaults_to_off() {
+        let opts = HashMap::new();
+        assert!(!compact_rows_from_options(&opts));
+    }
+
+    #[test]
+    fn compact_rows_accepts_truthy_spellings() {
+        for value in ["on", "true", "1", "yes", "ON", " On ", "TRUE"] {
+            let mut opts = HashMap::new();
+            opts.insert(tmux::SIDEBAR_COMPACT.into(), value.into());
+            assert!(
+                compact_rows_from_options(&opts),
+                "{value:?} should enable compact rows"
+            );
+        }
+    }
+
+    #[test]
+    fn compact_rows_rejects_other_values() {
+        for value in ["off", "false", "0", "no", "", "maybe"] {
+            let mut opts = HashMap::new();
+            opts.insert(tmux::SIDEBAR_COMPACT.into(), value.into());
+            assert!(
+                !compact_rows_from_options(&opts),
+                "{value:?} should leave compact rows off"
             );
         }
     }

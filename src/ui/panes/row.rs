@@ -6,6 +6,7 @@ use crate::ui::icons::StatusIcons;
 
 mod body;
 mod branch;
+mod compact;
 mod ctx;
 mod status;
 
@@ -14,6 +15,7 @@ use body::{
     wait_reason_row,
 };
 use branch::branch_ports_row;
+use compact::render_pane_lines as render_compact_pane_lines;
 use ctx::{RowCtx, SELECTION_MARKER};
 #[cfg(test)]
 use status::running_icon_for;
@@ -51,6 +53,7 @@ pub(super) fn render_pane_lines_with_ports(
         spinner_frame,
         now,
         true,
+        false,
     )
 }
 
@@ -69,6 +72,7 @@ pub(super) fn render_pane_lines_with_options(
     spinner_frame: usize,
     now: u64,
     show_session_names: bool,
+    compact: bool,
 ) -> Vec<Line<'static>> {
     let bg = if selected {
         Some(theme.selection_bg)
@@ -116,6 +120,18 @@ pub(super) fn render_pane_lines_with_options(
         bg: None,
         active,
     };
+
+    if compact {
+        return render_compact_pane_lines(
+            pane,
+            git_info,
+            &marker_ctx,
+            &plain_ctx,
+            icons,
+            spinner_frame,
+            now,
+        );
+    }
 
     let mut out: Vec<Line<'static>> = Vec::with_capacity(8);
     out.push(status_row(
@@ -307,6 +323,7 @@ mod tests {
             &theme,
             0,
             0,
+            false,
             false,
         );
 

@@ -91,6 +91,8 @@ pub const SIDEBAR_REPO_FILTER: &str = "@sidebar_repo_filter";
 pub const SIDEBAR_BOTTOM_HEIGHT: &str = "@sidebar_bottom_height";
 pub const SIDEBAR_PET: &str = "@sidebar_pet";
 pub const SIDEBAR_SHOW_SESSION_NAMES: &str = "@sidebar_show_session_names";
+/// Render every agent entry in exactly two lines. Off by default.
+pub const SIDEBAR_COMPACT: &str = "@sidebar_compact";
 pub const SIDEBAR_NOTIFICATIONS: &str = "@sidebar_notifications";
 pub const SIDEBAR_NOTIFICATIONS_EVENTS: &str = "@sidebar_notifications_events";
 pub const SIDEBAR_NOTIFICATIONS_BACKEND: &str = "@sidebar_notifications_backend";
@@ -146,6 +148,13 @@ pub const SIDEBAR_ICON_WAITING: &str = "@sidebar_icon_waiting";
 pub const SIDEBAR_ICON_IDLE: &str = "@sidebar_icon_idle";
 pub const SIDEBAR_ICON_ERROR: &str = "@sidebar_icon_error";
 pub const SIDEBAR_ICON_UNKNOWN: &str = "@sidebar_icon_unknown";
+
+/// Per-provider glyphs shown on compact agent rows, where the textual
+/// agent label is not rendered.
+pub const SIDEBAR_ICON_AGENT_CLAUDE: &str = "@sidebar_icon_agent_claude";
+pub const SIDEBAR_ICON_AGENT_CODEX: &str = "@sidebar_icon_agent_codex";
+pub const SIDEBAR_ICON_AGENT_OPENCODE: &str = "@sidebar_icon_agent_opencode";
+pub const SIDEBAR_ICON_AGENT_UNKNOWN: &str = "@sidebar_icon_agent_unknown";
 
 pub fn get_option(name: &str) -> Option<String> {
     run_tmux(&["show", "-gv", name])

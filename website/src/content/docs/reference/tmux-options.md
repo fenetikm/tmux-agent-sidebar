@@ -17,6 +17,7 @@ Most options must be set **before** loading the plugin in your `tmux.conf`. Colo
 | `@sidebar_position`              | `left`  | Sidebar placement (`left` or `right`)                                                   |
 | `@sidebar_bottom_height`         | `20`    | Bottom panel height in lines (set `0` to hide)                                          |
 | `@sidebar_show_session_names`    | `on`    | Show Claude `/rename` session labels in pane rows. Set `off` to always show the agent label (`claude`, `codex`, `opencode`) |
+| `@sidebar_compact`               | `off`   | Render every agent entry in two lines: status, provider, mode, branch, elapsed on the first; one line of detail on the second. Toggle at runtime with `c` |
 | `@sidebar_auto_create`           | `on`    | Auto-create the sidebar on new windows (set `off` to disable)                           |
 | `@sidebar_auto_create_delay`     | `0`     | Seconds to defer auto-create after a window opens, so a declaratively-built window (e.g. tmuxinator's `select-layout`) finishes before the sidebar pane is injected; accepts fractional seconds. `0` keeps the create synchronous |
 | `@sidebar_notifications`         | `on`    | Master switch for desktop notifications                                                 |
@@ -121,6 +122,10 @@ Any Unicode glyph works. Make sure the glyphs render in your terminal font.
 | `@sidebar_icon_idle`    | `○`     | Idle status icon             |
 | `@sidebar_icon_error`   | `✕`     | Error status icon            |
 | `@sidebar_icon_unknown` | `·`     | Unknown status icon          |
+| `@sidebar_icon_agent_claude`   | `✳`     | Claude provider glyph (compact rows)   |
+| `@sidebar_icon_agent_codex`    | `◆`     | Codex provider glyph (compact rows)    |
+| `@sidebar_icon_agent_opencode` | `◇`     | OpenCode provider glyph (compact rows) |
+| `@sidebar_icon_agent_unknown`  | `·`     | Unknown provider glyph (compact rows)  |
 
 ## Example config
 
