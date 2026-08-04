@@ -20,6 +20,7 @@ pub enum AgentEventKind {
     TeammateIdle,
     WorktreeCreate,
     WorktreeRemove,
+    AfterAgentResponse,
 }
 
 impl AgentEventKind {
@@ -43,6 +44,7 @@ impl AgentEventKind {
         Self::TeammateIdle,
         Self::WorktreeCreate,
         Self::WorktreeRemove,
+        Self::AfterAgentResponse,
     ];
 
     /// Normalized external event name passed to
@@ -66,6 +68,7 @@ impl AgentEventKind {
             Self::TeammateIdle => "teammate-idle",
             Self::WorktreeCreate => "worktree-create",
             Self::WorktreeRemove => "worktree-remove",
+            Self::AfterAgentResponse => "after-agent-response",
         }
     }
 
@@ -103,10 +106,11 @@ mod tests {
                 | AgentEventKind::TaskCompleted
                 | AgentEventKind::TeammateIdle
                 | AgentEventKind::WorktreeCreate
-                | AgentEventKind::WorktreeRemove => {}
+                | AgentEventKind::WorktreeRemove
+                | AgentEventKind::AfterAgentResponse => {}
             }
         }
-        assert_eq!(AgentEventKind::ALL.len(), 16);
+        assert_eq!(AgentEventKind::ALL.len(), 17);
     }
 
     #[test]

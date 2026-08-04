@@ -34,6 +34,21 @@ pub(in crate::cli::hook) fn on_user_prompt_submit(
     0
 }
 
+pub(in crate::cli::hook) fn on_after_agent_response(
+    pane: &str,
+    ctx: &AgentContext<'_>,
+    text: &str,
+) -> i32 {
+    set_agent_meta(pane, ctx);
+    if text.is_empty() {
+        return 0;
+    }
+    let msg = sanitize_tmux_value(text);
+    tmux::set_pane_option(pane, tmux::PANE_PROMPT, &msg);
+    tmux::set_pane_option(pane, tmux::PANE_PROMPT_SOURCE, "response");
+    0
+}
+
 pub(in crate::cli::hook) fn on_stop(
     pane: &str,
     ctx: &AgentContext<'_>,

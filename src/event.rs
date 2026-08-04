@@ -119,6 +119,12 @@ pub enum AgentEvent {
     WorktreeRemove {
         worktree_path: String,
     },
+    AfterAgentResponse {
+        agent: String,
+        cwd: String,
+        text: String,
+        session_id: Option<String>,
+    },
 }
 
 impl AgentEvent {
@@ -141,6 +147,7 @@ impl AgentEvent {
             Self::TeammateIdle { .. } => AgentEventKind::TeammateIdle,
             Self::WorktreeCreate => AgentEventKind::WorktreeCreate,
             Self::WorktreeRemove { .. } => AgentEventKind::WorktreeRemove,
+            Self::AfterAgentResponse { .. } => AgentEventKind::AfterAgentResponse,
         }
     }
 }

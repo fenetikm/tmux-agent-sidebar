@@ -71,6 +71,16 @@ fn handle_event(pane: &str, agent_name: &str, event: AgentEvent) -> i32 {
             &context::make_ctx(&agent, &cwd, &permission_mode, &worktree, &session_id),
             &prompt,
         ),
+        AgentEvent::AfterAgentResponse {
+            agent,
+            cwd,
+            text,
+            session_id,
+        } => handlers::on_after_agent_response(
+            pane,
+            &context::make_ctx(&agent, &cwd, "", &None, &session_id),
+            &text,
+        ),
         AgentEvent::Notification {
             agent,
             cwd,

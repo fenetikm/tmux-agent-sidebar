@@ -1,5 +1,6 @@
 pub mod claude;
 pub mod codex;
+pub mod cursor;
 pub mod opencode;
 
 use crate::event::AgentEventKind;
@@ -46,6 +47,9 @@ pub(crate) fn minimal_payload(kind: AgentEventKind) -> serde_json::Value {
         AgentEventKind::ActivityLog => json!({"tool_name": "Read"}),
         AgentEventKind::SubagentStart | AgentEventKind::SubagentStop => {
             json!({"agent_type": "Explore"})
+        }
+        AgentEventKind::AfterAgentResponse => {
+            json!({"text": "done", "workspace_roots": ["/tmp"]})
         }
         _ => json!({}),
     }

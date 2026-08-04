@@ -1,4 +1,5 @@
 use super::*;
+use crate::adapter::cursor::CursorAdapter;
 use serde_json::{Value, json};
 
 const FAKE_HOOK: &str = "/fake/hook.sh";
@@ -457,13 +458,13 @@ fn full_output_has_expected_top_level_keys() {
     let agents = v.get("agents").and_then(Value::as_object).unwrap();
     let mut keys: Vec<&str> = agents.keys().map(String::as_str).collect();
     keys.sort();
-    assert_eq!(keys, vec!["claude", "codex"]);
+    assert_eq!(keys, vec!["claude", "codex", "cursor"]);
 }
 
 #[test]
 fn full_output_snippet_matches_single_agent_snippet() {
     let full = build_setup_output(FAKE_HOOK);
-    for agent in ["claude", "codex"] {
+    for agent in ["claude", "codex", "cursor"] {
         let from_full = full
             .pointer(&format!("/agents/{}/snippet", agent))
             .unwrap_or_else(|| panic!("missing snippet for {}", agent));
@@ -478,6 +479,7 @@ fn full_output_normalized_hooks_count_matches_table() {
     for (agent, table_len) in [
         ("claude", ClaudeAdapter::HOOK_REGISTRATIONS.len()),
         ("codex", CodexAdapter::HOOK_REGISTRATIONS.len()),
+        ("cursor", CursorAdapter::HOOK_REGISTRATIONS.len()),
     ] {
         let hooks = full
             .pointer(&format!("/agents/{}/hooks", agent))
@@ -906,6 +908,82 @@ const EXPECTED_FULL_OUTPUT: &str = r#"{
           ]
         }
       }
+    },
+    "cursor": {
+      "config_path": "~/.cursor/hooks.json",
+      "hooks": [
+        {
+          "command": "bash /fake/hook.sh cursor session-start",
+          "event": "session-start",
+          "matcher": null,
+          "trigger": "sessionStart"
+        },
+        {
+          "command": "bash /fake/hook.sh cursor user-prompt-submit",
+          "event": "user-prompt-submit",
+          "matcher": null,
+          "trigger": "beforeSubmitPrompt"
+        },
+        {
+          "command": "bash /fake/hook.sh cursor activity-log",
+          "event": "activity-log",
+          "matcher": null,
+          "trigger": "postToolUse"
+        },
+        {
+          "command": "bash /fake/hook.sh cursor after-agent-response",
+          "event": "after-agent-response",
+          "matcher": null,
+          "trigger": "afterAgentResponse"
+        },
+        {
+          "command": "bash /fake/hook.sh cursor stop",
+          "event": "stop",
+          "matcher": null,
+          "trigger": "stop"
+        },
+        {
+          "command": "bash /fake/hook.sh cursor session-end",
+          "event": "session-end",
+          "matcher": null,
+          "trigger": "sessionEnd"
+        }
+      ],
+      "snippet": {
+        "hooks": {
+          "afterAgentResponse": [
+            {
+              "command": "bash /fake/hook.sh cursor after-agent-response"
+            }
+          ],
+          "beforeSubmitPrompt": [
+            {
+              "command": "bash /fake/hook.sh cursor user-prompt-submit"
+            }
+          ],
+          "postToolUse": [
+            {
+              "command": "bash /fake/hook.sh cursor activity-log"
+            }
+          ],
+          "sessionEnd": [
+            {
+              "command": "bash /fake/hook.sh cursor session-end"
+            }
+          ],
+          "sessionStart": [
+            {
+              "command": "bash /fake/hook.sh cursor session-start"
+            }
+          ],
+          "stop": [
+            {
+              "command": "bash /fake/hook.sh cursor stop"
+            }
+          ]
+        },
+        "version": 1
+      }
     }
   },
   "hook_script": "/fake/hook.sh",
@@ -915,7 +993,7 @@ const EXPECTED_FULL_OUTPUT: &str = r#"{
 #[test]
 fn full_output_normalized_command_matches_snippet_command() {
     let full = build_setup_output(FAKE_HOOK);
-    for agent in ["claude", "codex"] {
+    for agent in ["claude", "codex", "cursor"] {
         let hooks = full
             .pointer(&format!("/agents/{}/hooks", agent))
             .and_then(Value::as_array)
@@ -930,6 +1008,7 @@ fn full_output_normalized_command_matches_snippet_command() {
             let found = group.iter().any(|slot: &Value| {
                 slot.pointer("/hooks/0/command")
                     .and_then(Value::as_str)
+                    .or_else(|| slot.get("command").and_then(Value::as_str))
                     .map(|c| c == command)
                     .unwrap_or(false)
             });

@@ -17,6 +17,7 @@ pub struct StatusIcons {
     agent_claude: String,
     agent_codex: String,
     agent_opencode: String,
+    agent_cursor: String,
     agent_unknown: String,
 }
 
@@ -33,6 +34,7 @@ impl Default for StatusIcons {
             agent_claude: "✳".into(),
             agent_codex: "◆".into(),
             agent_opencode: "◇".into(),
+            agent_cursor: "◈".into(),
             agent_unknown: "·".into(),
         }
     }
@@ -75,6 +77,7 @@ impl StatusIcons {
         icons.agent_claude = read_agent(tmux::SIDEBAR_ICON_AGENT_CLAUDE, &icons.agent_claude);
         icons.agent_codex = read_agent(tmux::SIDEBAR_ICON_AGENT_CODEX, &icons.agent_codex);
         icons.agent_opencode = read_agent(tmux::SIDEBAR_ICON_AGENT_OPENCODE, &icons.agent_opencode);
+        icons.agent_cursor = read_agent(tmux::SIDEBAR_ICON_AGENT_CURSOR, &icons.agent_cursor);
         icons.agent_unknown = read_agent(tmux::SIDEBAR_ICON_AGENT_UNKNOWN, &icons.agent_unknown);
         icons
     }
@@ -104,6 +107,7 @@ impl StatusIcons {
             tmux::AgentType::Claude => self.agent_claude.as_str(),
             tmux::AgentType::Codex => self.agent_codex.as_str(),
             tmux::AgentType::OpenCode => self.agent_opencode.as_str(),
+            tmux::AgentType::Cursor => self.agent_cursor.as_str(),
             tmux::AgentType::Unknown => self.agent_unknown.as_str(),
         }
     }
@@ -147,6 +151,7 @@ mod tests {
         assert_eq!(icons.agent_icon(&tmux::AgentType::Claude), "✳");
         assert_eq!(icons.agent_icon(&tmux::AgentType::Codex), "◆");
         assert_eq!(icons.agent_icon(&tmux::AgentType::OpenCode), "◇");
+        assert_eq!(icons.agent_icon(&tmux::AgentType::Cursor), "◈");
         assert_eq!(icons.agent_icon(&tmux::AgentType::Unknown), "·");
     }
 

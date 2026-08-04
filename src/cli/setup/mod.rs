@@ -8,11 +8,14 @@ use std::path::PathBuf;
 use crate::adapter::HookRegistration;
 use crate::adapter::claude::ClaudeAdapter;
 use crate::adapter::codex::CodexAdapter;
+use crate::adapter::cursor::CursorAdapter;
 
 #[allow(dead_code)]
 const _CLAUDE_TABLE_REACHABLE: &[HookRegistration] = ClaudeAdapter::HOOK_REGISTRATIONS;
 #[allow(dead_code)]
 const _CODEX_TABLE_REACHABLE: &[HookRegistration] = CodexAdapter::HOOK_REGISTRATIONS;
+#[allow(dead_code)]
+const _CURSOR_TABLE_REACHABLE: &[HookRegistration] = CursorAdapter::HOOK_REGISTRATIONS;
 
 /// POSIX-quote a string for safe use as a single shell argument.
 ///
@@ -62,12 +65,27 @@ fn format_hook_command(hook_script: &str, agent: &str, event: &str) -> String {
 /// When `HookRegistration.matcher` is `None`, the snippet uses the empty
 /// string `""` (matching Claude/Codex's "any tool" convention).
 pub(crate) fn build_agent_snippet(agent: &str, hook_script: &str) -> Option<serde_json::Value> {
-    let table: &[HookRegistration] = match agent {
-        "claude" => ClaudeAdapter::HOOK_REGISTRATIONS,
-        "codex" => CodexAdapter::HOOK_REGISTRATIONS,
-        _ => return None,
-    };
+    match agent {
+        "claude" => Some(build_claude_codex_snippet(
+            ClaudeAdapter::HOOK_REGISTRATIONS,
+            hook_script,
+            "claude",
+        )),
+        "codex" => Some(build_claude_codex_snippet(
+            CodexAdapter::HOOK_REGISTRATIONS,
+            hook_script,
+            "codex",
+        )),
+        "cursor" => Some(build_cursor_snippet(hook_script)),
+        _ => None,
+    }
+}
 
+fn build_claude_codex_snippet(
+    table: &[HookRegistration],
+    hook_script: &str,
+    agent: &str,
+) -> serde_json::Value {
     let mut hooks = serde_json::Map::new();
     for reg in table {
         let matcher = reg.matcher.unwrap_or("");
@@ -86,7 +104,26 @@ pub(crate) fn build_agent_snippet(agent: &str, hook_script: &str) -> Option<serd
         arr.push(entry);
     }
 
-    Some(serde_json::json!({ "hooks": serde_json::Value::Object(hooks) }))
+    serde_json::json!({ "hooks": serde_json::Value::Object(hooks) })
+}
+
+fn build_cursor_snippet(hook_script: &str) -> serde_json::Value {
+    let mut hooks = serde_json::Map::new();
+    for reg in CursorAdapter::HOOK_REGISTRATIONS {
+        let command = format_hook_command(hook_script, "cursor", reg.kind.external_name());
+        let entry = serde_json::json!({ "command": command });
+        let arr = hooks
+            .entry(reg.trigger.to_string())
+            .or_insert_with(|| serde_json::Value::Array(Vec::new()))
+            .as_array_mut()
+            .expect("trigger entry must be an array");
+        arr.push(entry);
+    }
+
+    serde_json::json!({
+        "version": 1,
+        "hooks": serde_json::Value::Object(hooks),
+    })
 }
 
 #[allow(dead_code)]
@@ -283,6 +320,12 @@ pub(crate) fn build_setup_output(hook_script: &str) -> serde_json::Value {
         CodexAdapter::HOOK_REGISTRATIONS,
         hook_script,
     );
+    let cursor = build_agent_entry(
+        "cursor",
+        "~/.cursor/hooks.json",
+        CursorAdapter::HOOK_REGISTRATIONS,
+        hook_script,
+    );
 
     serde_json::json!({
         "version": crate::VERSION,
@@ -290,6 +333,7 @@ pub(crate) fn build_setup_output(hook_script: &str) -> serde_json::Value {
         "agents": {
             "claude": claude,
             "codex": codex,
+            "cursor": cursor,
         },
     })
 }
@@ -401,6 +445,7 @@ pub(crate) fn config_path_for_agent(agent: &str) -> Option<PathBuf> {
     match agent {
         "claude" => Some(home.join(".claude/settings.json")),
         "codex" => Some(home.join(".codex/hooks.json")),
+        "cursor" => Some(home.join(".cursor/hooks.json")),
         _ => None,
     }
 }
@@ -431,14 +476,14 @@ fn run_setup(args: &[String], hook_script: &str) -> (i32, Option<serde_json::Val
             Some(snippet) => (0, Some(snippet)),
             None => {
                 eprintln!(
-                    "error: unknown agent '{}' (expected 'claude' or 'codex')",
+                    "error: unknown agent '{}' (expected 'claude', 'codex', or 'cursor')",
                     args[0]
                 );
                 (2, None)
             }
         },
         _ => {
-            eprintln!("usage: tmux-agent-sidebar setup [claude|codex]");
+            eprintln!("usage: tmux-agent-sidebar setup [claude|codex|cursor]");
             (2, None)
         }
     }
