@@ -31,9 +31,14 @@ bind-key M-n run-shell '"#{@agent_sidebar_bin}" focus next --scope session'
 bind-key M-p run-shell '"#{@agent_sidebar_bin}" focus prev --scope session'
 bind-key M-l run-shell '"#{@agent_sidebar_bin}" focus notification'
 bind-key M-L run-shell '"#{@agent_sidebar_bin}" focus notification --scope session'
+bind 1 run-shell '"#{@agent_sidebar_bin}" focus 1'
+bind 2 run-shell '"#{@agent_sidebar_bin}" focus 2'
+bind 3 run-shell '"#{@agent_sidebar_bin}" focus 3'
 ```
 
 `@agent_sidebar_bin` is set by the plugin to the binary it loaded, so these bindings work without the binary being on your `PATH`. tmux expands the format when the key is pressed, and the surrounding double quotes keep paths containing spaces intact. Place the bindings after the plugin is loaded in your `tmux.conf`.
+
+Numeric bindings (`focus 1`, `focus 2`, …) jump to the corresponding visible agent row in the sidebar list. They honour `@sidebar_filter` and `@sidebar_repo_filter`, so the mapping shifts when filters change.
 
 `--scope all` navigates agent panes across every tmux session. `--scope session` limits navigation to the session containing the currently active pane. Every agent pane is eligible regardless of status, so idle and waiting agents are included. Navigation wraps at the ends of the eligible list, and pressing a key from a non-agent pane enters the list from the corresponding end.
 

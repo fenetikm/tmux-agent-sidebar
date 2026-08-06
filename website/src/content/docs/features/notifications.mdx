@@ -57,28 +57,48 @@ brew install terminal-notifier
 set -g @sidebar_notifications_backend "terminal-notifier"
 set -g @sidebar_notifications_icon "/path/to/icon.png"
 set -g @sidebar_notifications_sound "default"
-set -g @sidebar_notifications_click_script "/path/to/focus-agent-pane.sh"
+set -g @sidebar_notifications_click_script "$HOME/.config/tmux/focus-agent.sh"
 ```
 
 When `terminal-notifier` runs the click script, it passes tmux identifiers as positional arguments:
 
 ```bash
-focus-agent-pane.sh "$pane_id" "$session_id" "$window_id"
+focus-agent.sh "$pane_id" "$session_id" "$window_id"
 ```
 
-Example click script:
+Example click script (Kitty + tmux). `terminal-notifier` runs click scripts with a minimal `PATH` (`/usr/bin:/bin:/usr/sbin:/sbin`), so resolve `tmux` explicitly — on Apple Silicon Homebrew installs it under `/opt/homebrew/bin`, which is not on that path:
 
 ```bash
 #!/usr/bin/env bash
-pane_id="$1"
-session_id="$2"
-window_id="$3"
 
-osascript -e 'tell application "Ghostty" to activate'
-tmux switch-client -t "$pane_id" 2>/dev/null || tmux switch-client -t "$session_id" 2>/dev/null || true
-tmux select-window -t "$window_id" 2>/dev/null || true
-tmux select-pane -t "$pane_id" 2>/dev/null || true
+# focus an agent pane, used from the terminal notifier script
+
+set -euo pipefail
+
+PANE_ID="$1"
+SESSION_ID="$2"
+WINDOW_ID="$3"
+
+# need the path to resolve tmux
+export PATH="/opt/homebrew/bin:/usr/local/bin:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
+
+TMUX_BIN="$(command -v tmux)"
+if [[ -z "$TMUX_BIN" ]]; then
+  echo "focus-agent: tmux not found (PATH=$PATH)" >&2
+  exit 1
+fi
+
+osascript -e 'tell application "kitty" to activate'
+
+# Jump to the pane that fired the notification.
+"$TMUX_BIN" switch-client -t "$SESSION_ID" 2>/dev/null \
+  || "$TMUX_BIN" switch-client -t "$PANE_ID" 2>/dev/null \
+  || true
+"$TMUX_BIN" select-window -t "$WINDOW_ID" 2>/dev/null || true
+"$TMUX_BIN" select-pane -t "$PANE_ID"
 ```
+
+Swap `"kitty"` for your terminal app name (`"Ghostty"`, `"iTerm"`, etc.) if needed.
 
 `osascript` ignores `@sidebar_notifications_icon` and `@sidebar_notifications_click_script`; it only supports title, body, and sound.
 

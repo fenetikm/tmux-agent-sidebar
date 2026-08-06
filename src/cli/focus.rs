@@ -1,5 +1,6 @@
 use crate::desktop_notification;
 use crate::group;
+use crate::state::{RepoFilter, StatusFilter};
 use crate::tmux::SessionInfo;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,6 +16,7 @@ enum Direction {
 enum Target {
     Cycle(Direction),
     Notification,
+    Index(u32),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -250,11 +252,64 @@ fn no_notification_message(scope: Scope) -> &'static str {
 /// the user can tell "nothing has notified" from "you are already there".
 const ALREADY_ON_NOTIFIED_PANE: &str = "agent-sidebar: already on the last notified pane";
 
+fn select_pane_by_index(visible: &[String], index: u32) -> Option<String> {
+    visible.get(index as usize - 1).cloned()
+}
+
+fn parse_index(value: &str) -> Option<u32> {
+    if value.is_empty() || !value.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let n: u32 = value.parse().ok()?;
+    (n >= 1).then_some(n)
+}
+
+fn load_sidebar_filters() -> (StatusFilter, RepoFilter) {
+    let opts = crate::tmux::get_all_global_options();
+    let status = opts
+        .get(crate::tmux::SIDEBAR_FILTER)
+        .map(|s| StatusFilter::from_label(s))
+        .unwrap_or(StatusFilter::All);
+    let repo = opts
+        .get(crate::tmux::SIDEBAR_REPO_FILTER)
+        .map(|s| RepoFilter::from_label(s))
+        .unwrap_or(RepoFilter::All);
+    (status, repo)
+}
+
+fn no_visible_message() -> &'static str {
+    "agent-sidebar: no visible agent panes"
+}
+
+fn no_index_message(index: u32) -> String {
+    format!("agent-sidebar: no agent at position {index}")
+}
+
+fn focus_by_index(sessions: &[SessionInfo], index: u32) -> i32 {
+    let groups = group::group_panes_by_repo(sessions);
+    let (status_filter, repo_filter) = load_sidebar_filters();
+    let visible = group::visible_pane_ids(&groups, status_filter, &repo_filter);
+
+    match select_pane_by_index(&visible, index) {
+        None if visible.is_empty() => crate::tmux::show_message(no_visible_message()),
+        None => crate::tmux::show_message(&no_index_message(index)),
+        Some(pane_id) => {
+            crate::tmux::select_pane(&pane_id);
+        }
+    }
+    0
+}
+
 fn usage() {
-    eprintln!("usage: tmux-agent-sidebar focus <next|prev|notification> [--scope <all|session>]");
+    eprintln!(
+        "usage: tmux-agent-sidebar focus <next|prev|notification|<N>> [--scope <all|session>]"
+    );
 }
 
 fn parse_target(value: &str) -> Option<Target> {
+    if let Some(index) = parse_index(value) {
+        return Some(Target::Index(index));
+    }
     match value {
         "next" => Some(Target::Cycle(Direction::Next)),
         "prev" | "previous" => Some(Target::Cycle(Direction::Prev)),
@@ -274,6 +329,9 @@ fn parse_args(args: &[String]) -> Result<(Target, Scope), ()> {
     while index < args.len() {
         match args[index].as_str() {
             "--scope" => {
+                if matches!(target, Target::Index(_)) {
+                    return Err(());
+                }
                 let value = args.get(index + 1).ok_or(())?;
                 scope = match value.as_str() {
                     "all" => Scope::All,
@@ -311,31 +369,27 @@ pub fn cmd_focus(args: &[String]) -> i32 {
     };
     let active_session = crate::tmux::pane_session_name(&active_pane_id);
 
-    let direction = match target {
-        Target::Cycle(direction) => direction,
+    match target {
         Target::Notification => {
-            return focus_last_notification(
+            focus_last_notification(&sessions, &active_pane_id, active_session.as_deref(), scope)
+        }
+        Target::Index(index) => focus_by_index(&sessions, index),
+        Target::Cycle(direction) => {
+            let Some(target_pane_id) = select_target_pane(
                 &sessions,
                 &active_pane_id,
                 active_session.as_deref(),
+                direction,
                 scope,
-            );
+            ) else {
+                crate::tmux::show_message(no_target_message(scope));
+                return 0;
+            };
+
+            crate::tmux::select_pane(&target_pane_id);
+            0
         }
-    };
-
-    let Some(target_pane_id) = select_target_pane(
-        &sessions,
-        &active_pane_id,
-        active_session.as_deref(),
-        direction,
-        scope,
-    ) else {
-        crate::tmux::show_message(no_target_message(scope));
-        return 0;
-    };
-
-    crate::tmux::select_pane(&target_pane_id);
-    0
+    }
 }
 
 #[cfg(test)]
@@ -606,6 +660,61 @@ mod tests {
             parse_args(&["previous".into(), "--scope".into(), "session".into()]),
             Ok((Target::Cycle(Direction::Prev), Scope::Session))
         );
+    }
+
+    #[test]
+    fn select_pane_by_index_is_one_based() {
+        let visible = ids(&["%1", "%2", "%3"]);
+        assert_eq!(select_pane_by_index(&visible, 1), Some("%1".into()));
+        assert_eq!(select_pane_by_index(&visible, 3), Some("%3".into()));
+        assert_eq!(select_pane_by_index(&visible, 4), None);
+    }
+
+    #[test]
+    fn parse_args_accepts_numeric_index() {
+        assert_eq!(
+            parse_args(&["3".into()]),
+            Ok((Target::Index(3), Scope::All))
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_zero_index() {
+        assert_eq!(parse_args(&["0".into()]), Err(()));
+    }
+
+    #[test]
+    fn parse_args_rejects_scope_with_numeric_index() {
+        assert_eq!(
+            parse_args(&["2".into(), "--scope".into(), "session".into()]),
+            Err(())
+        );
+    }
+
+    #[test]
+    fn focus_by_index_respects_visible_order_and_filters() {
+        let mut p1 = pane_at_path("%1", "/tmp/a-repo", "one");
+        p1.status = PaneStatus::Running;
+        let mut p2 = pane_at_path("%2", "/tmp/a-repo", "one");
+        p2.status = PaneStatus::Idle;
+        let sessions = vec![session("one", vec![p1, p2])];
+        let groups = group::group_panes_by_repo(&sessions);
+        let visible = group::visible_pane_ids(&groups, StatusFilter::Running, &RepoFilter::All);
+        assert_eq!(select_pane_by_index(&visible, 1), Some("%1".into()));
+        assert_eq!(select_pane_by_index(&visible, 2), None);
+    }
+
+    #[test]
+    fn no_visible_message_is_exact() {
+        assert_eq!(
+            no_visible_message(),
+            "agent-sidebar: no visible agent panes"
+        );
+    }
+
+    #[test]
+    fn no_index_message_substitutes_position() {
+        assert_eq!(no_index_message(3), "agent-sidebar: no agent at position 3");
     }
 
     #[test]

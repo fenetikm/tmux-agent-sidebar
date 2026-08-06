@@ -1,6 +1,7 @@
 use indexmap::IndexMap;
 
 use crate::git::run_git;
+use crate::state::{RepoFilter, StatusFilter};
 use crate::tmux::PaneInfo;
 
 /// Per-pane git metadata resolved from the pane's working directory.
@@ -144,6 +145,37 @@ pub fn group_panes_by_repo(sessions: &[crate::tmux::SessionInfo]) -> Vec<RepoGro
     let mut result: Vec<RepoGroup> = groups.into_values().collect();
     result.sort_by_key(|group| group.name.to_lowercase());
     result
+}
+
+/// Agent pane ids visible in the sidebar list: repo groups in order, status
+/// and repo filters applied. Stale repo filters (name no longer present) fall
+/// back to `All` without writing back to tmux — only the running TUI persists
+/// that correction.
+pub fn visible_pane_ids(
+    groups: &[RepoGroup],
+    status_filter: StatusFilter,
+    repo_filter: &RepoFilter,
+) -> Vec<String> {
+    let effective_repo = match repo_filter {
+        RepoFilter::All => RepoFilter::All,
+        RepoFilter::Repo(name) if groups.iter().any(|g| g.name == *name) => {
+            RepoFilter::Repo(name.clone())
+        }
+        RepoFilter::Repo(_) => RepoFilter::All,
+    };
+
+    let mut ids = Vec::new();
+    for group in groups {
+        if !effective_repo.matches_group(&group.name) {
+            continue;
+        }
+        for (pane, _) in &group.panes {
+            if status_filter.matches(&pane.status) {
+                ids.push(pane.pane_id.clone());
+            }
+        }
+    }
+    ids
 }
 
 /// Resolve a possibly-relative git path to an absolute canonical path.
@@ -422,5 +454,86 @@ mod tests {
         assert_eq!(groups[1].name, "mmm");
         assert_eq!(groups[2].name, "zzz");
         assert_eq!(groups[2].panes.len(), 2, "zzz should have 2 panes");
+    }
+
+    fn test_pane_with_status(id: &str, status: crate::tmux::PaneStatus) -> PaneInfo {
+        let mut pane = test_pane(id, "/repo");
+        pane.status = status;
+        pane
+    }
+
+    fn test_group_with_status(
+        name: &str,
+        pane_ids: &[(&str, crate::tmux::PaneStatus)],
+    ) -> RepoGroup {
+        RepoGroup {
+            name: name.into(),
+            has_focus: false,
+            panes: pane_ids
+                .iter()
+                .map(|(id, status)| {
+                    (
+                        test_pane_with_status(id, status.clone()),
+                        PaneGitInfo::default(),
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn visible_pane_ids_returns_all_agents_when_unfiltered() {
+        let groups = vec![
+            test_group_with_status("alpha", &[("%1", crate::tmux::PaneStatus::Running)]),
+            test_group_with_status("beta", &[("%2", crate::tmux::PaneStatus::Idle)]),
+        ];
+        assert_eq!(
+            visible_pane_ids(&groups, StatusFilter::All, &RepoFilter::All),
+            vec!["%1", "%2"]
+        );
+    }
+
+    #[test]
+    fn visible_pane_ids_applies_status_filter() {
+        let groups = vec![test_group_with_status(
+            "app",
+            &[
+                ("%1", crate::tmux::PaneStatus::Running),
+                ("%2", crate::tmux::PaneStatus::Idle),
+                ("%3", crate::tmux::PaneStatus::Waiting),
+            ],
+        )];
+        assert_eq!(
+            visible_pane_ids(&groups, StatusFilter::Idle, &RepoFilter::All),
+            vec!["%2"]
+        );
+    }
+
+    #[test]
+    fn visible_pane_ids_applies_repo_filter() {
+        let groups = vec![
+            test_group_with_status("app", &[("%1", crate::tmux::PaneStatus::Running)]),
+            test_group_with_status("lib", &[("%2", crate::tmux::PaneStatus::Running)]),
+        ];
+        assert_eq!(
+            visible_pane_ids(&groups, StatusFilter::All, &RepoFilter::Repo("lib".into())),
+            vec!["%2"]
+        );
+    }
+
+    #[test]
+    fn visible_pane_ids_ignores_stale_repo_filter() {
+        let groups = vec![test_group_with_status(
+            "app",
+            &[("%1", crate::tmux::PaneStatus::Running)],
+        )];
+        assert_eq!(
+            visible_pane_ids(
+                &groups,
+                StatusFilter::All,
+                &RepoFilter::Repo("deleted".into())
+            ),
+            vec!["%1"]
+        );
     }
 }

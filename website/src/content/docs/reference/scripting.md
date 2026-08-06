@@ -50,7 +50,7 @@ tmux show -t "$pane_id" -pv @pane_agent
 Use `focus` from tmux bindings or scripts to jump between agent panes:
 
 ```bash
-tmux-agent-sidebar focus <next|prev|notification> [--scope <all|session>]
+tmux-agent-sidebar focus <next|prev|notification|<N>> [--scope <all|session>]
 ```
 
 Examples:
@@ -71,6 +71,22 @@ The plugin sets `@agent_sidebar_bin` to the absolute path of the binary it loade
 The command wraps at list boundaries. From a pane that isn't an agent pane — a shell, an editor, the sidebar — `next` enters the list at the first agent pane and `prev` at the last, so a single agent pane is still reachable in one press.
 
 When the jump would land on the pane you are already in, the command writes a short note to the tmux status line and exits `0`; when it is not running inside tmux at all it prints an error to stderr and exits non-zero.
+
+### Focus by index
+
+`focus <N>` jumps directly to the *N*th agent row visible in the sidebar list. Numbers are **1-based** (`1` = top row). Repo header lines do not count — only agent pane rows.
+
+The list respects the current `@sidebar_filter` and `@sidebar_repo_filter` tmux options, so numbers track what you see in the sidebar and shift when filters change. `--scope` does not apply to numeric targets.
+
+Example bindings:
+
+```tmux
+bind 1 run-shell '"#{@agent_sidebar_bin}" focus 1'
+bind 2 run-shell '"#{@agent_sidebar_bin}" focus 2'
+bind 3 run-shell '"#{@agent_sidebar_bin}" focus 3'
+```
+
+When no agents are visible under the current filters, or when `N` is out of range, the command writes a note to the tmux status line and exits `0`.
 
 ### The notification target
 

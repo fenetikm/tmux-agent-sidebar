@@ -80,17 +80,12 @@ impl AppState {
         }
 
         self.layout.pane_row_targets.clear();
-        for group in &self.repo_groups {
-            if !self.global.repo_filter.matches_group(&group.name) {
-                continue;
-            }
-            for (pane, _) in &group.panes {
-                if self.global.status_filter.matches(&pane.status) {
-                    self.layout.pane_row_targets.push(RowTarget {
-                        pane_id: pane.pane_id.clone(),
-                    });
-                }
-            }
+        for pane_id in crate::group::visible_pane_ids(
+            &self.repo_groups,
+            self.global.status_filter,
+            &self.global.repo_filter,
+        ) {
+            self.layout.pane_row_targets.push(RowTarget { pane_id });
         }
         if self.global.selected_pane_row >= self.layout.pane_row_targets.len()
             && !self.layout.pane_row_targets.is_empty()
