@@ -32,7 +32,9 @@ pub use popup::{PopupState, SpawnField};
 pub(crate) use refresh::{TaskProgressDecision, classify_task_progress};
 pub use scroll::{ScrollState, ScrollStates};
 pub use session::SessionNamesState;
-pub use sessions::{SessionsPanelHeight, sessions_panel_height_from_options};
+pub use sessions::{
+    SessionRow, SessionsPanelHeight, SessionsPanelState, sessions_panel_height_from_options,
+};
 pub use timers::RefreshTimers;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -136,7 +138,9 @@ pub struct AppState {
     /// map has been propagated to every pane. Avoids re-walking every
     /// pane each tick when the map is unchanged (the polling thread only
     /// updates it every 10s).
-    pub sessions: SessionNamesState,
+    pub session_names: SessionNamesState,
+    /// tmux session switcher panel at the top of the sidebar.
+    pub sessions: SessionsPanelState,
     /// Whether the pet animation is drawn and ticked. Loaded once at startup
     /// from the `@sidebar_pet` tmux option. Defaults to `false`.
     pub pet_enabled: bool,
@@ -193,7 +197,8 @@ impl AppState {
             version_notice: None,
             global: GlobalState::new(),
             bottom_panel_height: crate::ui::BOTTOM_PANEL_HEIGHT,
-            sessions: SessionNamesState::new(),
+            session_names: SessionNamesState::new(),
+            sessions: SessionsPanelState::default(),
             pet_enabled: false,
             show_session_names: true,
             compact_rows: false,

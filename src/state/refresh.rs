@@ -73,7 +73,7 @@ impl AppState {
             })
             .collect();
         self.repo_groups = crate::group::group_panes_by_repo(&sessions);
-        if !self.sessions.dirty
+        if !self.session_names.dirty
             && self
                 .repo_groups
                 .iter()
@@ -83,8 +83,9 @@ impl AppState {
                     Some(prev_sid) => *prev_sid != p.session_id,
                 })
         {
-            self.sessions.dirty = true;
+            self.session_names.dirty = true;
         }
+        self.sessions.refresh_rows(&self.repo_groups);
         self.prune_pane_states_to_current_panes();
         self.rebuild_row_targets();
         self.find_focused_pane();
@@ -161,9 +162,9 @@ impl AppState {
         } else {
             self.apply_session_snapshot(focused, sessions);
         }
-        if self.sessions.dirty {
+        if self.session_names.dirty {
             self.refresh_session_names();
-            self.sessions.dirty = false;
+            self.session_names.dirty = false;
         }
         self.refresh_activity_data();
         sidebar.window_active
@@ -177,7 +178,7 @@ impl AppState {
         for group in &mut self.repo_groups {
             for (pane, _) in &mut group.panes {
                 if let Some(sid) = &pane.session_id
-                    && let Some(name) = self.sessions.names.get(sid)
+                    && let Some(name) = self.session_names.names.get(sid)
                 {
                     pane.session_name.clone_from(name);
                 } else {
@@ -857,8 +858,14 @@ mod tests {
             pane_with_session("%1", "sess-a"),
             pane_with_session("%2", "sess-b"),
         ]);
-        state.sessions.names.insert("sess-a".into(), "alpha".into());
-        state.sessions.names.insert("sess-b".into(), "beta".into());
+        state
+            .session_names
+            .names
+            .insert("sess-a".into(), "alpha".into());
+        state
+            .session_names
+            .names
+            .insert("sess-b".into(), "beta".into());
 
         state.refresh_session_names();
 
@@ -896,13 +903,13 @@ mod tests {
         // refresh_session_names would be skipped and the UI would
         // keep showing the old session label forever.
         let mut state = state_with_panes(vec![pane_with_session("%1", "sess-old")]);
-        state.sessions.dirty = false;
+        state.session_names.dirty = false;
 
         let next_sessions = test_session(vec![pane_with_session("%1", "sess-new")]);
         state.apply_session_snapshot(false, next_sessions);
 
         assert!(
-            state.sessions.dirty,
+            state.session_names.dirty,
             "session_names_dirty must be set when an existing pane's session_id changes"
         );
     }
@@ -912,13 +919,13 @@ mod tests {
         // Same pane, same session_id across snapshots — no need to
         // re-walk every pane, dirty flag should stay clear.
         let mut state = state_with_panes(vec![pane_with_session("%1", "sess-a")]);
-        state.sessions.dirty = false;
+        state.session_names.dirty = false;
 
         let next_sessions = test_session(vec![pane_with_session("%1", "sess-a")]);
         state.apply_session_snapshot(false, next_sessions);
 
         assert!(
-            !state.sessions.dirty,
+            !state.session_names.dirty,
             "session_names_dirty must remain clear when nothing changed"
         );
     }
@@ -931,7 +938,10 @@ mod tests {
         // to a known session.
         let mut state = state_with_panes(vec![test_pane("%1")]);
         state.repo_groups[0].panes[0].0.session_name = "stray".into();
-        state.sessions.names.insert("sess-a".into(), "alpha".into());
+        state
+            .session_names
+            .names
+            .insert("sess-a".into(), "alpha".into());
 
         state.refresh_session_names();
 
