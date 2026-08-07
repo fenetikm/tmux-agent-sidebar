@@ -110,6 +110,10 @@ impl SessionsPanelState {
             self.effective_content_height(term_height, bottom_panel_height, pet_band_height);
         if content > 0 { content + 1 } else { 0 }
     }
+
+    pub fn scroll_by(&mut self, delta: isize) {
+        self.scroll.scroll(delta);
+    }
 }
 
 /// Read `@sidebar_sessions_height` from tmux global options.

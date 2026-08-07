@@ -76,6 +76,22 @@ pub(super) fn point_in_rect(row: u16, col: u16, rect: ratatui::layout::Rect) -> 
     rect.contains(ratatui::layout::Position { x: col, y: row })
 }
 
+/// Resolve a sessions-panel click to a tmux session name, or `None` for
+/// misses and current-session no-ops.
+pub fn resolve_session_row_click<'a>(
+    row: u16,
+    col: u16,
+    targets: &'a [SessionRowTarget],
+    current_session: &str,
+) -> Option<&'a str> {
+    let target = targets.iter().find(|t| point_in_rect(row, col, t.rect))?;
+    if target.tmux_session == current_session {
+        None
+    } else {
+        Some(&target.tmux_session)
+    }
+}
+
 impl AppState {
     pub fn rebuild_row_targets(&mut self) {
         // Reset stale repo filter if the repo no longer exists, and
@@ -118,7 +134,19 @@ impl AppState {
         self.rebuild_row_targets();
     }
 
-    /// Handle mouse scroll event, routing to agents or bottom panel based on Y position.
+    fn pet_band_height(&self, bottom_panel_height: u16) -> u16 {
+        if bottom_panel_height > 0 {
+            if self.pet_enabled {
+                crate::ui::PET_SCENE_HEIGHT
+            } else {
+                1
+            }
+        } else {
+            0
+        }
+    }
+
+    /// Handle mouse scroll event, routing to sessions, agents, or bottom panel by Y position.
     pub fn handle_mouse_scroll(
         &mut self,
         row: u16,
@@ -126,11 +154,31 @@ impl AppState {
         bottom_panel_height: u16,
         delta: isize,
     ) {
+        let pet_h = self.pet_band_height(bottom_panel_height);
+        let band_h = self
+            .sessions
+            .total_band_height(term_height, bottom_panel_height, pet_h);
+        if row < band_h {
+            self.sessions.scroll_by(delta);
+            return;
+        }
         let bottom_start = term_height.saturating_sub(bottom_panel_height);
         if row >= bottom_start {
             self.scroll_bottom(delta);
         } else {
             self.scrolls.panes.scroll(delta);
+        }
+    }
+
+    /// Switch tmux session when a non-current sessions-panel row is clicked.
+    pub fn handle_session_row_click(&mut self, row: u16, col: u16) {
+        if let Some(name) = resolve_session_row_click(
+            row,
+            col,
+            &self.layout.session_row_targets,
+            &self.sessions.current_tmux_session,
+        ) {
+            crate::tmux::switch_to_session(name);
         }
     }
 
@@ -294,5 +342,44 @@ impl AppState {
             self.global.queue_cursor_save();
             self.activate_selected_pane();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::layout::Rect;
+
+    fn target(session: &str, y: u16) -> SessionRowTarget {
+        SessionRowTarget {
+            rect: Rect {
+                x: 0,
+                y,
+                width: 28,
+                height: 1,
+            },
+            tmux_session: session.into(),
+        }
+    }
+
+    #[test]
+    fn resolve_session_row_click_returns_non_current_session() {
+        let targets = vec![target("main", 0), target("work", 1)];
+        assert_eq!(
+            resolve_session_row_click(1, 5, &targets, "main"),
+            Some("work")
+        );
+    }
+
+    #[test]
+    fn resolve_session_row_click_no_op_for_current_session() {
+        let targets = vec![target("main", 0), target("work", 1)];
+        assert_eq!(resolve_session_row_click(0, 5, &targets, "main"), None);
+    }
+
+    #[test]
+    fn resolve_session_row_click_no_op_for_miss() {
+        let targets = vec![target("main", 0)];
+        assert_eq!(resolve_session_row_click(5, 5, &targets, "main"), None);
     }
 }

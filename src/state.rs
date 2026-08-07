@@ -25,6 +25,7 @@ pub use focus::{Focus, FocusState};
 pub use global::GlobalState;
 pub use layout::{
     FrameLayout, HyperlinkOverlay, RepoSpawnTarget, RowTarget, SessionRowTarget, SpawnRemoveTarget,
+    resolve_session_row_click,
 };
 pub(crate) use notices::debug_forced_display;
 pub use notices::{ClaudePluginNotice, NoticesCopyTarget, NoticesMissingHookGroup, NoticesState};

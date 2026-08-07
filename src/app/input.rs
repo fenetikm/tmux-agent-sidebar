@@ -23,11 +23,27 @@ pub(super) fn handle_event(
         Event::Mouse(mouse) => {
             let term_height = terminal.size().map(|s| s.height).unwrap_or(0);
             let bottom_h = state.bottom_panel_height;
+            let pet_h = if bottom_h > 0 {
+                if state.pet_enabled {
+                    crate::ui::PET_SCENE_HEIGHT
+                } else {
+                    1
+                }
+            } else {
+                0
+            };
+            let band_h = state
+                .sessions
+                .total_band_height(term_height, bottom_h, pet_h);
             match mouse.kind {
                 MouseEventKind::Down(MouseButton::Left) => {
                     let bottom_start = term_height.saturating_sub(bottom_h);
-                    if mouse.row < bottom_start {
-                        state.handle_mouse_click(mouse.row, mouse.column);
+                    if mouse.row < band_h {
+                        if mouse.row < band_h.saturating_sub(1) {
+                            state.handle_session_row_click(mouse.row, mouse.column);
+                        }
+                    } else if mouse.row < bottom_start {
+                        state.handle_mouse_click(mouse.row.saturating_sub(band_h), mouse.column);
                     } else if mouse.row == bottom_start {
                         state.handle_bottom_tab_click(mouse.column);
                         // Keep the background git poller in sync immediately — the

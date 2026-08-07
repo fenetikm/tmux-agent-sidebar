@@ -135,3 +135,65 @@ fn sessions_panel_hidden_has_no_click_targets() {
     assert!(state.layout.session_row_targets.is_empty());
     assert_eq!(state.sessions.total_band_height(18, 0, 0), 0);
 }
+
+#[test]
+fn click_session_row_switches_when_not_current() {
+    use tmux_agent_sidebar::state::resolve_session_row_click;
+
+    let mut state = setup_three_sessions_state();
+    let _ = render_to_string(&mut state, 28, 18);
+    let target = state.layout.session_row_targets[0].rect;
+    let session = resolve_session_row_click(
+        target.y,
+        target.x,
+        &state.layout.session_row_targets,
+        &state.sessions.current_tmux_session,
+    );
+    assert_eq!(session, Some("feat"));
+}
+
+#[test]
+fn click_current_session_row_is_no_op() {
+    use tmux_agent_sidebar::state::resolve_session_row_click;
+
+    let mut state = setup_three_sessions_state();
+    let _ = render_to_string(&mut state, 28, 18);
+    let target = state.layout.session_row_targets[1].rect;
+    assert_eq!(state.layout.session_row_targets[1].tmux_session, "main");
+    assert_eq!(state.sessions.current_tmux_session, "main");
+    let session = resolve_session_row_click(
+        target.y,
+        target.x,
+        &state.layout.session_row_targets,
+        &state.sessions.current_tmux_session,
+    );
+    assert_eq!(session, None);
+}
+
+#[test]
+fn click_outside_session_row_targets_is_no_op() {
+    use tmux_agent_sidebar::state::resolve_session_row_click;
+
+    let mut state = setup_three_sessions_state();
+    let _ = render_to_string(&mut state, 28, 18);
+    let session = resolve_session_row_click(
+        99,
+        99,
+        &state.layout.session_row_targets,
+        &state.sessions.current_tmux_session,
+    );
+    assert_eq!(session, None);
+}
+
+#[test]
+fn mouse_scroll_in_sessions_band_scrolls_sessions() {
+    let mut state = setup_three_sessions_state();
+    state.sessions.scroll = tmux_agent_sidebar::state::ScrollState {
+        offset: 0,
+        total_lines: 10,
+        visible_height: 3,
+    };
+    state.handle_mouse_scroll(1, 18, 0, 3);
+    assert_eq!(state.sessions.scroll.offset, 3);
+    assert_eq!(state.scrolls.panes.offset, 0);
+}
