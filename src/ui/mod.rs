@@ -37,6 +37,13 @@ pub fn bottom_panel_height_from_tmux() -> u16 {
     bottom_panel_height_from_options(&opts)
 }
 
+/// Read `@sidebar_sessions_height` from tmux global options.
+pub fn sessions_panel_height_from_options(
+    opts: &HashMap<String, String>,
+) -> crate::state::SessionsPanelHeight {
+    crate::state::sessions_panel_height_from_options(opts)
+}
+
 /// Read `@sidebar_pet` from tmux global options, defaulting to `false` (off).
 /// Accepts `on`/`off`, `true`/`false`, `1`/`0` (case-insensitive).
 pub fn pet_enabled_from_options(opts: &HashMap<String, String>) -> bool {

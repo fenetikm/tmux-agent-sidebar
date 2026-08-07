@@ -89,6 +89,7 @@ pub const SIDEBAR_FILTER: &str = "@sidebar_filter";
 pub const SIDEBAR_CURSOR: &str = "@sidebar_cursor";
 pub const SIDEBAR_REPO_FILTER: &str = "@sidebar_repo_filter";
 pub const SIDEBAR_BOTTOM_HEIGHT: &str = "@sidebar_bottom_height";
+pub const SIDEBAR_SESSIONS_HEIGHT: &str = "@sidebar_sessions_height";
 pub const SIDEBAR_PET: &str = "@sidebar_pet";
 pub const SIDEBAR_SHOW_SESSION_NAMES: &str = "@sidebar_show_session_names";
 /// Render every agent entry in exactly two lines. Off by default.

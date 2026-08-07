@@ -15,6 +15,7 @@ mod popup;
 mod refresh;
 mod scroll;
 mod session;
+mod sessions;
 mod tab;
 mod timers;
 
@@ -31,6 +32,7 @@ pub use popup::{PopupState, SpawnField};
 pub(crate) use refresh::{TaskProgressDecision, classify_task_progress};
 pub use scroll::{ScrollState, ScrollStates};
 pub use session::SessionNamesState;
+pub use sessions::{SessionsPanelHeight, sessions_panel_height_from_options};
 pub use timers::RefreshTimers;
 
 #[derive(Debug, Clone, PartialEq)]
