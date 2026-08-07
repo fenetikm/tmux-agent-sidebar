@@ -92,6 +92,7 @@ Common options:
 | `@sidebar_exclude_windows` | empty/unset | Space-separated glob patterns (`*` and `?`); windows whose name matches any pattern are excluded from automatic sidebar creation (`toggle-all` and the new-window hook). Manual toggle still works. Example: `logs scratch-?`. |
 | `@sidebar_show_session_names` | `on` | Show Claude `/rename` session labels in pane rows. Set `off` to always show the agent label (`claude`, `codex`, `opencode`). |
 | `@sidebar_compact` | `off` | Render every agent entry in two lines. Toggle at runtime with `c`. |
+| `@sidebar_sessions_height` | `auto` | Top sessions panel height. unset/`auto`: fit all session rows (scroll when auto-cap leaves fewer than 5 agent rows); positive integer: fixed row cap with scroll; `0`: always hide. Panel appears only when two or more non-excluded tmux sessions have agents. Click a row to `switch-client`. |
 
 To stop pane titles switching between `claude` and Claude `/rename` labels, add this before loading the plugin:
 
