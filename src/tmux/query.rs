@@ -208,6 +208,7 @@ fn build_session_hierarchy_with_exclusions(
             });
 
         if let Some(mut pane) = parse_pane_fields_with_processes(pane_fields, process_snapshot) {
+            pane.tmux_session = session_name.to_string();
             pane.window_id = window_id.to_string();
             if pane.agent == AgentType::Codex
                 && let Some(pid) = pane.pane_pid
@@ -372,6 +373,7 @@ fn parse_pane_fields_with_processes(
         },
         session_id,
         session_name: String::new(),
+        tmux_session: String::new(),
         window_id: String::new(),
         sidebar_spawned: parts[pane_line_field::SIDEBAR_SPAWNED] == "1",
         bg_shell_cmd: {
@@ -622,6 +624,7 @@ mod tests {
             worktree: WorktreeMetadata::default(),
             session_id: None,
             session_name: String::new(),
+            tmux_session: String::new(),
             window_id: String::new(),
             sidebar_spawned: false,
             bg_shell_cmd: None,
@@ -1260,6 +1263,7 @@ mod tests {
                     worktree: WorktreeMetadata::default(),
                     session_id: None,
                     session_name: String::new(),
+                    tmux_session: String::new(),
                     window_id: String::new(),
                     sidebar_spawned: false,
                     bg_shell_cmd: None,
@@ -1350,6 +1354,15 @@ mod tests {
         let pid_str = pane_pid.to_string();
         fields[19] = &pid_str; // pane_pid
         fields.join("|")
+    }
+
+    #[test]
+    fn parse_pane_fields_sets_tmux_session_from_hierarchy_context() {
+        let line = make_full_pane_line("my-tmux-session", 12345);
+        let (sessions_map, _) = build_session_hierarchy(&line, None);
+        let sessions = finalize_sessions(sessions_map);
+        let pane = &sessions[0].windows[0].panes[0];
+        assert_eq!(pane.tmux_session, "my-tmux-session");
     }
 
     #[test]

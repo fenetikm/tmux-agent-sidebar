@@ -22,6 +22,9 @@ pub struct PaneInfo {
     pub worktree: WorktreeMetadata,
     pub session_id: Option<String>,
     pub session_name: String,
+    /// tmux session this pane belongs to (e.g. `"main"`). Distinct from
+    /// `session_name`, which is the Claude Code `/rename` label.
+    pub tmux_session: String,
     /// tmux window this pane lives in (e.g. `@3`). Populated from the
     /// session-level `window_id` field of the `list-panes -a` query, which
     /// would otherwise be lost when `group.rs` flattens the
