@@ -43,7 +43,7 @@ pub(super) fn handle_event(
                             state.handle_session_row_click(mouse.row, mouse.column);
                         }
                     } else if mouse.row < bottom_start {
-                        state.handle_mouse_click(mouse.row.saturating_sub(band_h), mouse.column);
+                        state.handle_mouse_click(mouse.row, mouse.column);
                     } else if mouse.row == bottom_start {
                         state.handle_bottom_tab_click(mouse.column);
                         // Keep the background git poller in sync immediately — the
@@ -230,8 +230,12 @@ fn repo_popup_nav_up(state: &mut AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::group::RepoGroup;
-    use crate::state::RowTarget;
+    use crate::group::{PaneGitInfo, RepoGroup};
+    use crate::state::{RowTarget, SessionsPanelHeight};
+    use crate::tmux::{AgentType, PaneInfo, PaneStatus, PermissionMode, WorktreeMetadata};
+    use crossterm::event::{Event, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    use ratatui::{Terminal, backend::CrosstermBackend};
+    use std::io;
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
@@ -239,6 +243,62 @@ mod tests {
 
     fn ctrl_key(c: char) -> KeyEvent {
         KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+    }
+
+    fn pane_with_session(id: &str, tmux_session: &str) -> PaneInfo {
+        PaneInfo {
+            pane_id: id.into(),
+            pane_active: false,
+            status: PaneStatus::Idle,
+            attention: false,
+            agent: AgentType::Claude,
+            path: "/home/user/project".into(),
+            current_command: String::new(),
+            prompt: String::new(),
+            prompt_is_response: false,
+            started_at: None,
+            wait_reason: String::new(),
+            permission_mode: PermissionMode::Default,
+            subagents: vec![],
+            pane_pid: None,
+            worktree: WorktreeMetadata::default(),
+            session_id: None,
+            session_name: String::new(),
+            tmux_session: tmux_session.into(),
+            window_id: String::new(),
+            sidebar_spawned: false,
+            bg_shell_cmd: None,
+        }
+    }
+
+    fn state_with_sessions_band_and_repo_popup() -> AppState {
+        let mut state = AppState::new("%99".into());
+        state.bottom_panel_height = 0;
+        state.sessions.current_tmux_session = "main".into();
+        state.sessions.height_mode = SessionsPanelHeight::Fixed(3);
+        state.repo_groups = vec![RepoGroup {
+            name: "project".into(),
+            has_focus: false,
+            panes: vec![
+                (pane_with_session("%1", "main"), PaneGitInfo::default()),
+                (pane_with_session("%2", "main"), PaneGitInfo::default()),
+                (pane_with_session("%3", "work"), PaneGitInfo::default()),
+                (pane_with_session("%4", "feat"), PaneGitInfo::default()),
+            ],
+        }];
+        state.sessions.refresh_rows(&state.repo_groups);
+        state.rebuild_row_targets();
+        state.toggle_repo_popup();
+        state
+    }
+
+    fn terminal_28x18() -> Terminal<CrosstermBackend<io::Stdout>> {
+        let backend = CrosstermBackend::new(io::stdout());
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .resize(ratatui::layout::Rect::new(0, 0, 28, 18))
+            .unwrap();
+        terminal
     }
 
     /// Build an AppState with three navigable pane rows and Panes focus,
@@ -381,5 +441,49 @@ mod tests {
         let flag = AtomicBool::new(false);
         handle_key_event(key(KeyCode::Char('c')), &mut state, &flag);
         assert_eq!(state.global.selected_pane_row, 1);
+    }
+
+    #[test]
+    fn handle_event_agent_panel_click_with_sessions_band_keeps_popup_open() {
+        let mut terminal = terminal_28x18();
+        let mut state = state_with_sessions_band_and_repo_popup();
+        terminal
+            .draw(|frame| crate::ui::draw(frame, &mut state))
+            .unwrap();
+
+        let band_h = state.sessions.total_band_height(18, 0, 0);
+        assert!(band_h > 0, "sessions band must be visible");
+        assert_eq!(
+            state.layout.agents_area_y, band_h,
+            "draw must record the agents panel origin for hit-testing"
+        );
+
+        let area = state
+            .repo_popup_area()
+            .expect("render must populate repo popup area");
+        let click_row = area.y;
+        let click_col = area.x + 1;
+        assert!(
+            click_row >= band_h,
+            "popup must live in the agent band below the sessions panel"
+        );
+
+        let flag = AtomicBool::new(false);
+        handle_event(
+            Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: click_col,
+                row: click_row,
+                modifiers: KeyModifiers::NONE,
+            }),
+            &mut state,
+            &flag,
+            &terminal,
+        );
+
+        assert!(
+            state.is_repo_popup_open(),
+            "click inside the repo popup must not close it when the sessions band is visible"
+        );
     }
 }

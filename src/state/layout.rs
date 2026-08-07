@@ -70,6 +70,10 @@ pub struct FrameLayout {
     /// OSC 8 hyperlink overlays the main loop writes after each frame so
     /// terminals can recognise PR numbers as clickable links.
     pub hyperlink_overlays: Vec<HyperlinkOverlay>,
+    /// Absolute frame Y of the agents panel top edge. Set every frame by
+    /// `ui::draw` so mouse hit-testing can map absolute clicks to the
+    /// panel-relative rows used by the filter bar and pane list.
+    pub agents_area_y: u16,
 }
 
 pub(super) fn point_in_rect(row: u16, col: u16, rect: ratatui::layout::Rect) -> bool {
@@ -246,10 +250,13 @@ impl AppState {
         }
     }
 
-    /// Handle mouse click in agents panel. Maps screen row to agent row
-    /// via line_to_row (adjusted for scroll offset) and activates that pane.
-    /// Row 0 is the fixed filter bar, row 1+ maps to the scrollable agent list.
+    /// Handle mouse click in agents panel. `row`/`col` are absolute frame
+    /// coordinates. Filter bar and pane-list routing use panel-relative
+    /// rows derived from [`FrameLayout::agents_area_y`]; popup and spawn/
+    /// remove targets use the absolute coordinates stored at render time.
     pub fn handle_mouse_click(&mut self, row: u16, col: u16) {
+        let rel_row = row.saturating_sub(self.layout.agents_area_y);
+
         if self.is_notices_popup_open() {
             if let Some(area) = self.notices_popup_area()
                 && point_in_rect(row, col, area)
@@ -302,11 +309,11 @@ impl AppState {
             return;
         }
 
-        if row == 0 {
+        if rel_row == 0 {
             self.handle_filter_click(col);
             return;
         }
-        if row == 1 {
+        if rel_row == 1 {
             self.handle_secondary_header_click(col);
             return;
         }
@@ -336,7 +343,7 @@ impl AppState {
             return;
         }
 
-        let line_index = (row as usize - 2) + self.scrolls.panes.offset;
+        let line_index = (rel_row as usize - 2) + self.scrolls.panes.offset;
         if let Some(Some(agent_row)) = self.layout.line_to_row.get(line_index) {
             self.global.selected_pane_row = *agent_row;
             self.global.queue_cursor_save();
@@ -381,5 +388,25 @@ mod tests {
     fn resolve_session_row_click_no_op_for_miss() {
         let targets = vec![target("main", 0)];
         assert_eq!(resolve_session_row_click(5, 5, &targets, "main"), None);
+    }
+
+    #[test]
+    fn mouse_click_inside_repo_popup_with_nonzero_agents_area_y_does_not_close() {
+        use crate::state::PopupState;
+
+        let mut state = AppState::new("%99".into());
+        state.layout.agents_area_y = 3;
+        state.popup = PopupState::Repo {
+            selected: 0,
+            area: Some(Rect::new(30, 5, 10, 6)),
+        };
+
+        // Title-row click (row == area.y) stays inside without confirming.
+        state.handle_mouse_click(5, 35);
+
+        assert!(
+            state.is_repo_popup_open(),
+            "click inside the repo popup must not close it when agents_area_y > 0"
+        );
     }
 }

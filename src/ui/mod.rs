@@ -136,6 +136,7 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
         idx += 1;
     }
 
+    state.layout.agents_area_y = chunks[idx].y;
     panes::draw_agents(frame, state, chunks[idx]);
     idx += 1;
 
