@@ -4,6 +4,7 @@ pub mod icons;
 pub mod notices;
 pub mod panes;
 pub mod pet;
+pub mod sessions;
 pub mod text;
 
 use std::collections::HashMap;
@@ -92,36 +93,58 @@ pub fn compact_rows_from_tmux() -> bool {
 
 pub fn draw(frame: &mut Frame, state: &mut AppState) {
     state.layout.hyperlink_overlays.clear();
+    state.layout.session_row_targets.clear();
     let area = frame.area();
 
     let bot_h = state.bottom_panel_height;
-    let divider_h = if bot_h > 0 && state.pet_enabled {
-        PET_SCENE_HEIGHT
+    let pet_band_h = if bot_h > 0 {
+        if state.pet_enabled {
+            PET_SCENE_HEIGHT
+        } else {
+            1
+        }
     } else {
-        1
+        0
     };
+
+    let band_h = state
+        .sessions
+        .total_band_height(area.height, bot_h, pet_band_h);
+    let sessions_content_h = band_h.saturating_sub(1);
+
+    let mut constraints = Vec::new();
+    if band_h > 0 {
+        constraints.push(Constraint::Length(sessions_content_h));
+        constraints.push(Constraint::Length(1));
+    }
+    constraints.push(Constraint::Min(1));
+    if bot_h > 0 {
+        constraints.push(Constraint::Length(pet_band_h));
+        constraints.push(Constraint::Length(bot_h));
+    }
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints(if bot_h > 0 {
-            vec![
-                Constraint::Min(1),
-                Constraint::Length(divider_h),
-                Constraint::Length(bot_h),
-            ]
-        } else {
-            vec![Constraint::Min(1)]
-        })
+        .constraints(constraints)
         .split(area);
 
-    panes::draw_agents(frame, state, chunks[0]);
+    let mut idx = 0usize;
+    if band_h > 0 {
+        sessions::draw_sessions_panel(frame, state, chunks[idx]);
+        idx += 1;
+        sessions::draw_sessions_divider(frame, state, chunks[idx]);
+        idx += 1;
+    }
 
-    if bot_h > 0 && chunks.len() > 2 {
-        bottom::draw_bottom(frame, state, chunks[2]);
+    panes::draw_agents(frame, state, chunks[idx]);
+    idx += 1;
+
+    if bot_h > 0 && chunks.len() > idx {
         if state.pet_enabled {
             let running_count = state.running_count();
-            pet::draw_pet(frame, state, chunks[1], running_count);
+            pet::draw_pet(frame, state, chunks[idx], running_count);
         }
+        bottom::draw_bottom(frame, state, chunks[idx + 1]);
     }
 }
 

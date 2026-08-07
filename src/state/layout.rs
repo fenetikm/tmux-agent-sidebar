@@ -24,6 +24,13 @@ pub struct SpawnRemoveTarget {
     pub pane_id: String,
 }
 
+/// Click target for a row in the sessions panel at the top of the sidebar.
+#[derive(Debug, Clone)]
+pub struct SessionRowTarget {
+    pub rect: ratatui::layout::Rect,
+    pub tmux_session: String,
+}
+
 /// Screen-positioned hyperlink overlay for OSC 8 terminal hyperlinks.
 #[derive(Debug, Clone)]
 pub struct HyperlinkOverlay {
@@ -58,6 +65,8 @@ pub struct FrameLayout {
     /// Click regions for the red `×` remove marker rendered next to the
     /// branch of each sidebar-spawned pane. One entry per visible row.
     pub spawn_remove_targets: Vec<SpawnRemoveTarget>,
+    /// Click regions for visible session rows in the top sessions panel.
+    pub session_row_targets: Vec<SessionRowTarget>,
     /// OSC 8 hyperlink overlays the main loop writes after each frame so
     /// terminals can recognise PR numbers as clickable links.
     pub hyperlink_overlays: Vec<HyperlinkOverlay>,
