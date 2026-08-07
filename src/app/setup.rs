@@ -1,6 +1,7 @@
 use crate::cli::plugin_state;
 use crate::session;
-use crate::state::AppState;
+use crate::state::{AppState, sessions_panel_height_from_options};
+use crate::tmux;
 use crate::ui;
 
 /// Construct and prime the initial [`AppState`] before the event loop starts.
@@ -19,6 +20,10 @@ pub(super) fn init_state(tmux_pane: String) -> AppState {
     state.show_session_names = ui::show_session_names_from_tmux();
     state.compact_rows = ui::compact_rows_from_tmux();
     state.global.load_from_tmux();
+    let opts = tmux::get_all_global_options();
+    state.sessions.height_mode = sessions_panel_height_from_options(&opts);
+    state.sessions.current_tmux_session =
+        tmux::display_message(&state.tmux_pane, "#{session_name}");
     state.refresh();
 
     super::render::refresh_git_for_focused_pane(&mut state);

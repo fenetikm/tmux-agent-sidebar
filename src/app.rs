@@ -86,6 +86,9 @@ pub fn run(
 
         let sigusr1 = needs_refresh.swap(false, Ordering::Relaxed);
         if sigusr1 || last_refresh.elapsed() >= refresh_interval {
+            if sigusr1 {
+                state.refresh_current_tmux_session();
+            }
             let previous_focused_pane_id = state.focus_state.focused_pane_id.clone();
             let is_window_active = state.refresh();
             if state.focus_state.focused_pane_id != previous_focused_pane_id {
@@ -95,6 +98,10 @@ pub fn run(
             if is_window_active {
                 if window_inactive_count >= 2 {
                     state.global.load_from_tmux();
+                    if !sigusr1 {
+                        state.refresh_current_tmux_session();
+                        state.sessions.refresh_rows(&state.repo_groups);
+                    }
                     state.rebuild_row_targets();
                 }
                 window_inactive_count = 0;
