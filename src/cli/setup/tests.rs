@@ -331,6 +331,64 @@ fn missing_hooks_accepts_symlinked_command_path() {
     let _ = std::fs::remove_file(&real_script);
 }
 
+#[test]
+fn missing_hooks_accepts_dollar_home_command_path() {
+    // Codex (and hand-edited configs) often spell the home directory as
+    // `$HOME/...` instead of `~/...` or an absolute path. Bash expands
+    // both forms identically; the validator must too.
+    use std::io::Write;
+    let home = std::env::var("HOME").expect("HOME must be set in tests");
+    let rel = format!(".tmux-agent-sidebar-test/mh-{}.sh", std::process::id());
+    let real_script = std::path::PathBuf::from(&home).join(&rel);
+    if let Some(parent) = real_script.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    {
+        let mut f = std::fs::File::create(&real_script).unwrap();
+        writeln!(f, "#!/bin/sh").unwrap();
+    }
+
+    let expected_hook = real_script.to_string_lossy().into_owned();
+    let dollar_home_hook = format!("$HOME/{rel}");
+
+    let mut config = build_agent_snippet("codex", &expected_hook).unwrap();
+    let hooks = config
+        .get_mut("hooks")
+        .and_then(Value::as_object_mut)
+        .expect("top-level hooks object");
+    let session_start = hooks
+        .get_mut("SessionStart")
+        .and_then(Value::as_array_mut)
+        .expect("SessionStart array");
+    let entry = session_start[0]
+        .as_object_mut()
+        .expect("SessionStart entry object");
+    let actions = entry
+        .get_mut("hooks")
+        .and_then(Value::as_array_mut)
+        .expect("inner hooks array");
+    let command = actions[0].as_object_mut().expect("command hook object");
+    command.insert(
+        "command".to_string(),
+        json!(format!("bash {dollar_home_hook} codex session-start")),
+    );
+
+    let missing = missing_hooks("codex", &config, &expected_hook);
+    assert!(
+        missing.is_empty(),
+        "$HOME paths should canonicalize like absolute paths: missing = {:?}",
+        missing
+    );
+
+    let _ = std::fs::remove_file(&real_script);
+    if let Some(parent) = real_script.parent() {
+        let _ = std::fs::remove_dir(parent);
+        if let Some(grand) = parent.parent() {
+            let _ = std::fs::remove_dir(grand);
+        }
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn missing_hooks_accepts_quoted_command_path_with_spaces() {

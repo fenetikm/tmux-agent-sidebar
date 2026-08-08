@@ -265,7 +265,7 @@ fn normalize_hook_command(cmd: &str) -> String {
         }
     };
 
-    let expanded = expand_home_tilde(&script);
+    let expanded = expand_home_path(&script);
     let resolved = std::fs::canonicalize(&expanded)
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or(expanded);
@@ -279,13 +279,20 @@ fn normalize_hook_command(cmd: &str) -> String {
     }
 }
 
-/// Minimal `~/`-to-`$HOME` expansion so we can normalize config commands
-/// without pulling in a shellexpand dep.
-fn expand_home_tilde(path: &str) -> String {
-    let Some(rest) = path.strip_prefix("~/") else {
+/// Expand `~/…` and `$HOME/…` (plus bare `~` / `$HOME`) to an absolute
+/// path under the current user's home directory so config commands that
+/// bash would treat as equivalent compare equal after canonicalization.
+fn expand_home_path(path: &str) -> String {
+    let Some(home) = std::env::var_os("HOME") else {
         return path.to_string();
     };
-    let Some(home) = std::env::var_os("HOME") else {
+    if path == "~" || path == "$HOME" {
+        return home.to_string_lossy().into_owned();
+    }
+    let rest = path
+        .strip_prefix("~/")
+        .or_else(|| path.strip_prefix("$HOME/"));
+    let Some(rest) = rest else {
         return path.to_string();
     };
     let mut p = std::path::PathBuf::from(home);
