@@ -51,9 +51,9 @@ fn setup_single_session_state() -> tmux_agent_sidebar::state::AppState {
 fn snapshot_sessions_panel_three_sessions() {
     let mut state = setup_three_sessions_state();
     insta::assert_snapshot!(render_to_string(&mut state, 28, 18), @r"
-    feat · 1 agent
-    main · 3 agents
-    ◐ work · 2 agents
+    feat · (1)
+    main · (3)
+    ◐ work · (2)
     ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
      ≡6  ●0  ◎0  ◐0  ○6  ✕0
     ⓘ                        — ▾
@@ -88,9 +88,9 @@ fn snapshot_sessions_panel_hidden_single_session() {
 fn snapshot_sessions_panel_current_session_accent() {
     let mut state = setup_three_sessions_state();
     insta::assert_snapshot!(render_to_styled_string(&mut state, 28, 18), @r"
-    f[fg:255]e[fg:255]a[fg:255]t[fg:255] [fg:255]·[fg:255] [fg:255]1[fg:255] [fg:255]a[fg:255]g[fg:255]e[fg:255]n[fg:255]t[fg:255]
-    m[fg:153]a[fg:153]i[fg:153]n[fg:153] [fg:153]·[fg:153] [fg:153]3[fg:153] [fg:153]a[fg:153]g[fg:153]e[fg:153]n[fg:153]t[fg:153]s[fg:153]
-    ◐[fg:255] [fg:255]w[fg:255]o[fg:255]r[fg:255]k[fg:255] [fg:255]·[fg:255] [fg:255]2[fg:255] [fg:255]a[fg:255]g[fg:255]e[fg:255]n[fg:255]t[fg:255]s[fg:255]
+    f[fg:255]e[fg:255]a[fg:255]t[fg:255] [fg:255]·[fg:255] [fg:255]([fg:255]1[fg:255])[fg:255]
+    m[fg:153]a[fg:153]i[fg:153]n[fg:153] [fg:153]·[fg:153] [fg:153]([fg:153]3[fg:153])[fg:153]
+    ◐[fg:255] [fg:255]w[fg:255]o[fg:255]r[fg:255]k[fg:255] [fg:255]·[fg:255] [fg:255]([fg:255]2[fg:255])[fg:255]
     ╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]╌[fg:240]
      ≡[fg:111]6[fg:255]  ●[fg:245]0[fg:245]  ◎[fg:245]0[fg:245]  ◐[fg:245]0[fg:245]  ○[fg:245]6[fg:255]  ✕[fg:245]0[fg:245]
     ⓘ[fg:221]                        —[fg:252] ▾[fg:252]

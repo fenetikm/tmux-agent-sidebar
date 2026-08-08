@@ -38,11 +38,7 @@ pub fn draw_sessions_panel(frame: &mut Frame, state: &mut AppState, area: Rect) 
         .take(visible_count)
         .enumerate()
     {
-        let suffix = if row.agent_count == 1 {
-            format!(" · {} agent", row.agent_count)
-        } else {
-            format!(" · {} agents", row.agent_count)
-        };
+        let suffix = format!(" · ({})", row.agent_count);
 
         let prefix = if row.has_attention {
             format!("{} ", waiting_icon)
