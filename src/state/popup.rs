@@ -129,6 +129,9 @@ impl AppState {
     }
 
     pub fn toggle_repo_popup(&mut self) {
+        if self.hide_repo_filter {
+            return;
+        }
         if self.is_repo_popup_open() {
             self.close_repo_popup();
             return;

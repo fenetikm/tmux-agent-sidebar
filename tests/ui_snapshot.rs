@@ -1526,6 +1526,40 @@ fn right_border_all_permission_modes_and_agents() {
 // ─── Filter Bar Tests ────────────────────────────────────────────
 
 #[test]
+fn snapshot_hidden_filter_bar_shows_secondary_header_only() {
+    let pane1 = make_pane(AgentType::Claude, PaneStatus::Running);
+    let pane2 = PaneInfo {
+        pane_id: "%2".into(),
+        pane_active: false,
+        status: PaneStatus::Idle,
+        agent: AgentType::Codex,
+        prompt: "idle".into(),
+        ..make_pane(AgentType::Codex, PaneStatus::Idle)
+    };
+
+    let mut state = make_state_with_groups(vec![make_repo_group("project", vec![pane1, pane2])]);
+    state.hide_filter_bar = true;
+    state.hide_repo_filter = true;
+    state.notices.missing_hook_groups.clear();
+    state.global.status_filter = StatusFilter::Running;
+    state.global.repo_filter = RepoFilter::Repo("project".into());
+    assert!(
+        !state.show_secondary_header(),
+        "both header controls hidden and notices cleared"
+    );
+    let output = render_to_string(&mut state, 30, 25);
+    insta::assert_snapshot!(output, @r"
+    project
+    ┃ ● claude
+      ○ codex
+        idle
+    ╭ Activity │ Git ────────────╮
+    │       No activity yet      │
+    ╰────────────────────────────╯
+    ");
+}
+
+#[test]
 fn snapshot_filter_bar_shows_counts() {
     let pane1 = make_pane(AgentType::Claude, PaneStatus::Running);
     let pane2 = PaneInfo {

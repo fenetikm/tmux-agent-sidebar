@@ -154,6 +154,13 @@ pub struct AppState {
     /// variable-height detail rows. Loaded at startup from
     /// `@sidebar_compact` and toggled at runtime by `c`.
     pub compact_rows: bool,
+    /// Hide the status filter bar and treat the agent list as unfiltered.
+    /// Loaded at startup from `@sidebar_hide_filter_bar` and toggled at
+    /// runtime by `f`.
+    pub hide_filter_bar: bool,
+    /// Hide the repo filter button and treat the agent list as unfiltered by
+    /// repository. Loaded at startup from `@sidebar_hide_repo_filter`.
+    pub hide_repo_filter: bool,
 }
 
 impl AppState {
@@ -205,9 +212,62 @@ impl AppState {
             pet_enabled: false,
             show_session_names: true,
             compact_rows: false,
+            hide_filter_bar: false,
+            hide_repo_filter: false,
         };
         crate::state::pet::reseed_pet_idle_motion(&mut state);
         state
+    }
+
+    /// Status filter applied to the agent list. When the filter bar is hidden
+    /// the list always shows every agent.
+    pub fn effective_status_filter(&self) -> StatusFilter {
+        if self.hide_filter_bar {
+            StatusFilter::All
+        } else {
+            self.global.status_filter
+        }
+    }
+
+    /// Repo filter applied to the agent list. When the repo filter control is
+    /// hidden the list always shows every repository.
+    pub fn effective_repo_filter(&self) -> RepoFilter {
+        if self.hide_repo_filter {
+            RepoFilter::All
+        } else {
+            self.global.repo_filter.clone()
+        }
+    }
+
+    pub fn show_filter_bar(&self) -> bool {
+        !self.hide_filter_bar
+    }
+
+    pub fn show_repo_filter(&self) -> bool {
+        !self.hide_repo_filter
+    }
+
+    /// Whether the secondary header row has anything to render.
+    pub fn show_secondary_header(&self) -> bool {
+        self.has_notices_header() || self.show_repo_filter()
+    }
+
+    /// Number of fixed header rows at the top of the agents panel.
+    pub fn agents_header_row_count(&self) -> u16 {
+        u16::from(self.show_filter_bar()) + u16::from(self.show_secondary_header())
+    }
+
+    /// Panel-relative row index of the secondary header, if rendered.
+    pub fn secondary_header_row(&self) -> Option<u16> {
+        if !self.show_secondary_header() {
+            return None;
+        }
+        Some(if self.show_filter_bar() { 1 } else { 0 })
+    }
+
+    /// Panel-relative row index where agent list rows begin.
+    pub fn list_start_row(&self) -> u16 {
+        self.agents_header_row_count()
     }
 }
 
@@ -1606,6 +1666,91 @@ mod tests {
         assert_eq!(state.global.status_filter, StatusFilter::Idle);
         assert_eq!(state.layout.pane_row_targets.len(), 1);
         assert_eq!(state.layout.pane_row_targets[0].pane_id, "%2");
+    }
+
+    #[test]
+    fn hide_filter_bar_shows_all_agents_regardless_of_saved_filter() {
+        let mut state = AppState::new("%99".into());
+        let mut running = test_pane("%1");
+        running.status = PaneStatus::Running;
+        let mut idle = test_pane("%2");
+        idle.status = PaneStatus::Idle;
+        state.repo_groups = vec![RepoGroup {
+            name: "project".into(),
+            has_focus: true,
+            panes: vec![
+                (running, PaneGitInfo::default()),
+                (idle, PaneGitInfo::default()),
+            ],
+        }];
+        state.global.status_filter = StatusFilter::Running;
+        state.hide_filter_bar = true;
+        state.rebuild_row_targets();
+        assert_eq!(state.layout.pane_row_targets.len(), 2);
+    }
+
+    #[test]
+    fn filter_click_does_nothing_when_bar_hidden() {
+        let mut state = AppState::new("%99".into());
+        state.hide_filter_bar = true;
+        state.global.status_filter = StatusFilter::All;
+        reset_filter_debounce(&mut state);
+        state.handle_filter_click(6);
+        assert_eq!(state.global.status_filter, StatusFilter::All);
+    }
+
+    #[test]
+    fn mouse_click_with_hidden_filter_bar_selects_agent_from_row_one() {
+        let mut state = AppState::new("%99".into());
+        state.hide_filter_bar = true;
+        state.layout.pane_row_targets = vec![
+            RowTarget {
+                pane_id: "%1".into(),
+            },
+            RowTarget {
+                pane_id: "%2".into(),
+            },
+        ];
+        state.layout.line_to_row = vec![None, Some(0), Some(1)];
+        state.scrolls.panes.offset = 0;
+
+        state.handle_mouse_click(2, 5);
+        assert_eq!(state.global.selected_pane_row, 0);
+
+        state.handle_mouse_click(3, 5);
+        assert_eq!(state.global.selected_pane_row, 1);
+    }
+
+    #[test]
+    fn show_secondary_header_hidden_when_repo_filter_and_notices_absent() {
+        let mut state = AppState::new("%0".into());
+        state.hide_filter_bar = true;
+        state.hide_repo_filter = true;
+        state.notices.missing_hook_groups.clear();
+        assert!(!state.has_notices_header());
+        assert!(!state.show_secondary_header());
+        assert_eq!(state.agents_header_row_count(), 0);
+    }
+
+    #[test]
+    fn hide_repo_filter_shows_all_repos_regardless_of_saved_filter() {
+        let mut state = AppState::new("%99".into());
+        state.repo_groups = vec![
+            RepoGroup {
+                name: "alpha".into(),
+                has_focus: true,
+                panes: vec![(test_pane("%1"), PaneGitInfo::default())],
+            },
+            RepoGroup {
+                name: "beta".into(),
+                has_focus: false,
+                panes: vec![(test_pane("%2"), PaneGitInfo::default())],
+            },
+        ];
+        state.global.repo_filter = RepoFilter::Repo("alpha".into());
+        state.hide_repo_filter = true;
+        state.rebuild_row_targets();
+        assert_eq!(state.layout.pane_row_targets.len(), 2);
     }
 
     // ─── StatusFilter / RepoFilter pure tests live in state/filter.rs ─

@@ -266,14 +266,20 @@ fn parse_index(value: &str) -> Option<u32> {
 
 fn load_sidebar_filters() -> (StatusFilter, RepoFilter) {
     let opts = crate::tmux::get_all_global_options();
-    let status = opts
-        .get(crate::tmux::SIDEBAR_FILTER)
-        .map(|s| StatusFilter::from_label(s))
-        .unwrap_or(StatusFilter::All);
-    let repo = opts
-        .get(crate::tmux::SIDEBAR_REPO_FILTER)
-        .map(|s| RepoFilter::from_label(s))
-        .unwrap_or(RepoFilter::All);
+    let status = if crate::ui::hide_filter_bar_from_options(&opts) {
+        StatusFilter::All
+    } else {
+        opts.get(crate::tmux::SIDEBAR_FILTER)
+            .map(|s| StatusFilter::from_label(s))
+            .unwrap_or(StatusFilter::All)
+    };
+    let repo = if crate::ui::hide_repo_filter_from_options(&opts) {
+        RepoFilter::All
+    } else {
+        opts.get(crate::tmux::SIDEBAR_REPO_FILTER)
+            .map(|s| RepoFilter::from_label(s))
+            .unwrap_or(RepoFilter::All)
+    };
     (status, repo)
 }
 

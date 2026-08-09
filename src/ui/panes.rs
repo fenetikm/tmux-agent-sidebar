@@ -56,24 +56,46 @@ struct PaneLayout {
 }
 
 impl PaneLayout {
-    fn compute(area: Rect) -> Self {
-        let filter_area = Rect {
-            x: area.x,
-            y: area.y,
-            width: area.width,
-            height: 1.min(area.height),
+    fn compute(area: Rect, state: &AppState) -> Self {
+        let filter_rows = u16::from(state.show_filter_bar());
+        let secondary_rows = u16::from(state.show_secondary_header());
+        let header_rows = filter_rows + secondary_rows;
+
+        let filter_area = if state.show_filter_bar() {
+            Rect {
+                x: area.x,
+                y: area.y,
+                width: area.width,
+                height: 1.min(area.height),
+            }
+        } else {
+            Rect {
+                x: area.x,
+                y: area.y,
+                width: area.width,
+                height: 0,
+            }
         };
-        let secondary_area = Rect {
-            x: area.x,
-            y: area.y + 1,
-            width: area.width,
-            height: 1.min(area.height.saturating_sub(1)),
+        let secondary_area = if state.show_secondary_header() {
+            Rect {
+                x: area.x,
+                y: area.y + filter_rows,
+                width: area.width,
+                height: 1.min(area.height.saturating_sub(filter_rows)),
+            }
+        } else {
+            Rect {
+                x: area.x,
+                y: area.y + filter_rows,
+                width: area.width,
+                height: 0,
+            }
         };
         let list_area = Rect {
             x: area.x,
-            y: area.y + 2,
+            y: area.y + header_rows,
             width: area.width,
-            height: area.height.saturating_sub(2),
+            height: area.height.saturating_sub(header_rows),
         };
         Self {
             filter_area,
@@ -357,9 +379,9 @@ pub(super) fn render_repo_popup(frame: &mut Frame, state: &mut AppState, area: R
     let popup_width = (max_name_len + 4).min(area.width as usize).max(10) as u16;
     let popup_height = (repos.len() as u16 + 2).min(area.height.saturating_sub(2)); // +2 for borders
 
-    // Right-aligned, below the 2-row header
+    // Right-aligned, below the agents-panel header rows
     let popup_x = area.x + area.width.saturating_sub(popup_width);
-    let popup_y = area.y + 2;
+    let popup_y = area.y + state.agents_header_row_count();
 
     let popup_rect = Rect::new(popup_x, popup_y, popup_width, popup_height);
     state.popup.set_repo_area(Some(popup_rect));
@@ -484,9 +506,13 @@ fn render_flash_banner_into(frame: &mut Frame, state: &mut AppState, area: Rect)
 }
 
 pub fn draw_agents(frame: &mut Frame, state: &mut AppState, area: Rect) {
-    let layout = PaneLayout::compute(area);
-    render_filter_bar_into(frame, state, layout.filter_area);
-    render_secondary_header_into(frame, state, layout.secondary_area);
+    let layout = PaneLayout::compute(area, state);
+    if state.show_filter_bar() {
+        render_filter_bar_into(frame, state, layout.filter_area);
+    }
+    if state.show_secondary_header() {
+        render_secondary_header_into(frame, state, layout.secondary_area);
+    }
 
     let row_collector::CollectedRows {
         lines,
@@ -512,6 +538,7 @@ pub fn draw_agents(frame: &mut Frame, state: &mut AppState, area: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::AppState;
 
     #[test]
     fn pane_layout_splits_area_into_filter_secondary_list() {
@@ -521,7 +548,8 @@ mod tests {
             width: 40,
             height: 20,
         };
-        let layout = PaneLayout::compute(area);
+        let state = AppState::new("%0".into());
+        let layout = PaneLayout::compute(area, &state);
         assert_eq!(layout.filter_area.x, 0);
         assert_eq!(layout.filter_area.y, 0);
         assert_eq!(layout.filter_area.width, 40);
@@ -534,6 +562,80 @@ mod tests {
     }
 
     #[test]
+    fn pane_layout_hides_filter_bar() {
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 40,
+            height: 20,
+        };
+        let mut state = AppState::new("%0".into());
+        state.hide_filter_bar = true;
+        let layout = PaneLayout::compute(area, &state);
+        assert_eq!(layout.filter_area.height, 0);
+        assert_eq!(layout.secondary_area.y, 0);
+        assert_eq!(layout.secondary_area.height, 1);
+        assert_eq!(layout.list_area.y, 1);
+        assert_eq!(layout.list_area.height, 19);
+    }
+
+    #[test]
+    fn pane_layout_hides_both_header_rows() {
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 40,
+            height: 20,
+        };
+        let mut state = AppState::new("%0".into());
+        state.hide_filter_bar = true;
+        state.hide_repo_filter = true;
+        let layout = PaneLayout::compute(area, &state);
+        assert_eq!(layout.filter_area.height, 0);
+        assert_eq!(layout.secondary_area.height, 0);
+        assert_eq!(layout.list_area.y, 0);
+        assert_eq!(layout.list_area.height, 20);
+    }
+
+    #[test]
+    fn pane_layout_hides_repo_filter_keeps_notices_row() {
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 40,
+            height: 20,
+        };
+        let mut state = AppState::new("%0".into());
+        state.hide_filter_bar = true;
+        state.hide_repo_filter = true;
+        state.version_notice = Some(crate::version::UpdateNotice {
+            local_version: "0.2.6".into(),
+            latest_version: "0.2.7".into(),
+        });
+        let layout = PaneLayout::compute(area, &state);
+        assert_eq!(layout.filter_area.height, 0);
+        assert_eq!(layout.secondary_area.height, 1);
+        assert_eq!(layout.list_area.y, 1);
+        assert_eq!(layout.list_area.height, 19);
+    }
+
+    #[test]
+    fn pane_layout_handles_tiny_area_with_hidden_filter_bar() {
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 40,
+            height: 1,
+        };
+        let mut state = AppState::new("%0".into());
+        state.hide_filter_bar = true;
+        let layout = PaneLayout::compute(area, &state);
+        assert_eq!(layout.filter_area.height, 0);
+        assert_eq!(layout.secondary_area.height, 1);
+        assert_eq!(layout.list_area.height, 0);
+    }
+
+    #[test]
     fn pane_layout_handles_tiny_area() {
         // Only 1 row available — filter gets it, secondary and list collapse to 0.
         let area = Rect {
@@ -542,7 +644,8 @@ mod tests {
             width: 40,
             height: 1,
         };
-        let layout = PaneLayout::compute(area);
+        let state = AppState::new("%0".into());
+        let layout = PaneLayout::compute(area, &state);
         assert_eq!(layout.filter_area.height, 1);
         assert_eq!(layout.secondary_area.height, 0);
         assert_eq!(layout.list_area.height, 0);
@@ -556,7 +659,8 @@ mod tests {
             width: 40,
             height: 0,
         };
-        let layout = PaneLayout::compute(area);
+        let state = AppState::new("%0".into());
+        let layout = PaneLayout::compute(area, &state);
         assert_eq!(layout.filter_area.height, 0);
         assert_eq!(layout.secondary_area.height, 0);
         assert_eq!(layout.list_area.height, 0);
@@ -570,7 +674,8 @@ mod tests {
             width: 30,
             height: 15,
         };
-        let layout = PaneLayout::compute(area);
+        let state = AppState::new("%0".into());
+        let layout = PaneLayout::compute(area, &state);
         assert_eq!(layout.filter_area.x, 5);
         assert_eq!(layout.filter_area.y, 10);
         assert_eq!(layout.secondary_area.x, 5);

@@ -1,6 +1,6 @@
 use ratatui::{style::Style, text::Span};
 
-use crate::state::{AppState, debug_forced_display};
+use crate::state::AppState;
 use crate::tmux::CODEX_AGENT;
 
 /// Width (in columns) reserved for the notices indicator button in the
@@ -18,14 +18,6 @@ pub(in crate::ui) const BUTTON_WIDTH: usize = 2;
 /// resolving the running binary path on every frame.
 pub(super) fn missing_hooks_has_copy_button(agent: &str) -> bool {
     agent == CODEX_AGENT
-}
-
-/// Whether the secondary header should show the notices indicator.
-pub(in crate::ui) fn has_info(state: &AppState) -> bool {
-    debug_forced_display()
-        || state.version_notice.is_some()
-        || state.notices.claude_plugin_notice.is_some()
-        || !state.notices.missing_hook_groups.is_empty()
 }
 
 /// Span for the notices indicator glyph. Always rendered in the waiting
@@ -71,25 +63,25 @@ mod tests {
     #[test]
     fn has_info_false_when_no_version_and_no_hooks() {
         let state = state_with(None, vec![]);
-        assert!(!has_info(&state));
+        assert!(!state.has_notices_header());
     }
 
     #[test]
     fn has_info_true_when_only_version_notice() {
         let state = state_with(Some(("0.2.6", "0.2.7")), vec![]);
-        assert!(has_info(&state));
+        assert!(state.has_notices_header());
     }
 
     #[test]
     fn has_info_true_when_only_missing_hooks() {
         let state = state_with(None, vec![("claude", vec!["Stop"])]);
-        assert!(has_info(&state));
+        assert!(state.has_notices_header());
     }
 
     #[test]
     fn has_info_true_when_both_version_and_hooks() {
         let state = state_with(Some(("0.2.6", "0.2.7")), vec![("claude", vec!["Stop"])]);
-        assert!(has_info(&state));
+        assert!(state.has_notices_header());
     }
 
     #[test]
@@ -97,7 +89,7 @@ mod tests {
         let mut state = state_with(None, vec![]);
         state.notices.claude_plugin_notice =
             Some(crate::state::ClaudePluginNotice::InstallRecommended);
-        assert!(has_info(&state));
+        assert!(state.has_notices_header());
     }
 
     // ─── button_span style ───────────────────────────────────────────

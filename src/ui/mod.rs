@@ -89,6 +89,36 @@ pub fn compact_rows_from_tmux() -> bool {
     compact_rows_from_options(&opts)
 }
 
+/// Read `@sidebar_hide_filter_bar` from tmux global options, defaulting to
+/// `false` so existing users keep the status filter bar visible.
+/// Accepts `on`/`off`, `true`/`false`, `1`/`0` (case-insensitive).
+pub fn hide_filter_bar_from_options(opts: &HashMap<String, String>) -> bool {
+    opts.get(tmux::SIDEBAR_HIDE_FILTER_BAR)
+        .map(|s| s.trim().to_ascii_lowercase())
+        .map(|s| matches!(s.as_str(), "on" | "true" | "1" | "yes"))
+        .unwrap_or(false)
+}
+
+pub fn hide_filter_bar_from_tmux() -> bool {
+    let opts = crate::tmux::get_all_global_options();
+    hide_filter_bar_from_options(&opts)
+}
+
+/// Read `@sidebar_hide_repo_filter` from tmux global options, defaulting to
+/// `false` so existing users keep the repo filter button visible.
+/// Accepts `on`/`off`, `true`/`false`, `1`/`0` (case-insensitive).
+pub fn hide_repo_filter_from_options(opts: &HashMap<String, String>) -> bool {
+    opts.get(tmux::SIDEBAR_HIDE_REPO_FILTER)
+        .map(|s| s.trim().to_ascii_lowercase())
+        .map(|s| matches!(s.as_str(), "on" | "true" | "1" | "yes"))
+        .unwrap_or(false)
+}
+
+pub fn hide_repo_filter_from_tmux() -> bool {
+    let opts = crate::tmux::get_all_global_options();
+    hide_repo_filter_from_options(&opts)
+}
+
 // ── public entry point ──────────────────────────────────────────────
 
 pub fn draw(frame: &mut Frame, state: &mut AppState) {
@@ -277,6 +307,66 @@ mod tests {
             assert!(
                 !compact_rows_from_options(&opts),
                 "{value:?} should leave compact rows off"
+            );
+        }
+    }
+
+    #[test]
+    fn hide_filter_bar_defaults_to_off() {
+        let opts = HashMap::new();
+        assert!(!hide_filter_bar_from_options(&opts));
+    }
+
+    #[test]
+    fn hide_filter_bar_accepts_truthy_spellings() {
+        for value in ["on", "true", "1", "yes", "ON", " On ", "TRUE"] {
+            let mut opts = HashMap::new();
+            opts.insert(tmux::SIDEBAR_HIDE_FILTER_BAR.into(), value.into());
+            assert!(
+                hide_filter_bar_from_options(&opts),
+                "{value:?} should hide the filter bar"
+            );
+        }
+    }
+
+    #[test]
+    fn hide_filter_bar_rejects_other_values() {
+        for value in ["off", "false", "0", "no", "", "maybe"] {
+            let mut opts = HashMap::new();
+            opts.insert(tmux::SIDEBAR_HIDE_FILTER_BAR.into(), value.into());
+            assert!(
+                !hide_filter_bar_from_options(&opts),
+                "{value:?} should leave the filter bar visible"
+            );
+        }
+    }
+
+    #[test]
+    fn hide_repo_filter_defaults_to_off() {
+        let opts = HashMap::new();
+        assert!(!hide_repo_filter_from_options(&opts));
+    }
+
+    #[test]
+    fn hide_repo_filter_accepts_truthy_spellings() {
+        for value in ["on", "true", "1", "yes", "ON", " On ", "TRUE"] {
+            let mut opts = HashMap::new();
+            opts.insert(tmux::SIDEBAR_HIDE_REPO_FILTER.into(), value.into());
+            assert!(
+                hide_repo_filter_from_options(&opts),
+                "{value:?} should hide the repo filter"
+            );
+        }
+    }
+
+    #[test]
+    fn hide_repo_filter_rejects_other_values() {
+        for value in ["off", "false", "0", "no", "", "maybe"] {
+            let mut opts = HashMap::new();
+            opts.insert(tmux::SIDEBAR_HIDE_REPO_FILTER.into(), value.into());
+            assert!(
+                !hide_repo_filter_from_options(&opts),
+                "{value:?} should leave the repo filter visible"
             );
         }
     }

@@ -69,6 +69,18 @@ pub(super) fn render_secondary_header<'a>(
     width: u16,
 ) -> (Line<'a>, Option<u16>, Option<u16>) {
     let theme = &state.theme;
+    let has_notices_info = state.has_notices_header();
+    let notices_button_col = has_notices_info.then_some(0);
+    let notices_width = crate::ui::notices::BUTTON_WIDTH;
+
+    if !state.show_repo_filter() {
+        let mut spans: Vec<Span<'a>> = Vec::new();
+        if has_notices_info {
+            spans.push(crate::ui::notices::button_span(state));
+        }
+        return (Line::from(spans), notices_button_col, None);
+    }
+
     let repo_icon = "▾";
 
     let repo_has_filter = !matches!(state.global.repo_filter, RepoFilter::All);
@@ -78,9 +90,6 @@ pub(super) fn render_secondary_header<'a>(
         Style::default().fg(theme.text_muted)
     };
 
-    let has_notices_info = crate::ui::notices::has_info(state);
-    let notices_button_col = has_notices_info.then_some(0);
-    let notices_width = crate::ui::notices::BUTTON_WIDTH;
     let max_repo_label_width = width.saturating_sub((notices_width + 3) as u16) as usize;
     let repo_label = match &state.global.repo_filter {
         RepoFilter::All => "—".to_string(),
@@ -339,6 +348,19 @@ mod tests {
         let state = make_state_with_groups(vec![]);
         let (_, _, col) = render_secondary_header(&state, 28);
         assert_eq!(col, Some(25), "repo button should be right-aligned");
+    }
+
+    #[test]
+    fn render_secondary_header_omits_repo_button_when_hidden() {
+        let mut state = make_state_with_groups(vec![]);
+        state.hide_repo_filter = true;
+        let text = line_text(&render_secondary_header(&state, 28).0);
+        assert!(
+            !text.contains('▾'),
+            "hidden repo filter should not render dropdown control"
+        );
+        let (_, _, repo_col) = render_secondary_header(&state, 28);
+        assert_eq!(repo_col, None);
     }
 
     #[test]

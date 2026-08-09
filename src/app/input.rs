@@ -143,7 +143,9 @@ pub(super) fn handle_key_event(
             state.global.save_filter();
             state.rebuild_row_targets();
         }
-        KeyCode::Char('r') if state.focus_state.focus == Focus::Filter => {
+        KeyCode::Char('r')
+            if state.focus_state.focus == Focus::Filter && state.show_repo_filter() =>
+        {
             state.toggle_repo_popup();
         }
         KeyCode::Char('n') if state.focus_state.focus == Focus::Panes => {
@@ -155,10 +157,13 @@ pub(super) fn handle_key_event(
         KeyCode::Char('c') if state.focus_state.focus == Focus::Panes => {
             state.toggle_compact_rows();
         }
+        KeyCode::Char('f') if state.focus_state.focus == Focus::Panes => {
+            state.toggle_hide_filter_bar();
+        }
         KeyCode::Enter if state.focus_state.focus == Focus::Panes => {
             state.activate_selected_pane();
         }
-        KeyCode::Tab => {
+        KeyCode::Tab if !state.hide_filter_bar => {
             state.global.status_filter = state.global.status_filter.next();
             state.global.save_filter();
             state.rebuild_row_targets();
@@ -194,7 +199,7 @@ fn pane_nav_up(state: &mut AppState) {
         Focus::Panes => {
             if state.move_pane_selection(-1) {
                 state.global.queue_cursor_save();
-            } else {
+            } else if !state.hide_filter_bar {
                 state.focus_state.focus = Focus::Filter;
             }
         }
@@ -231,7 +236,7 @@ fn repo_popup_nav_up(state: &mut AppState) {
 mod tests {
     use super::*;
     use crate::group::{PaneGitInfo, RepoGroup};
-    use crate::state::{RowTarget, SessionsPanelHeight};
+    use crate::state::{RowTarget, SessionsPanelHeight, StatusFilter};
     use crate::tmux::{AgentType, PaneInfo, PaneStatus, PermissionMode, WorktreeMetadata};
     use crossterm::event::{Event, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
     use ratatui::{Terminal, backend::CrosstermBackend};
@@ -441,6 +446,27 @@ mod tests {
         let flag = AtomicBool::new(false);
         handle_key_event(key(KeyCode::Char('c')), &mut state, &flag);
         assert_eq!(state.global.selected_pane_row, 1);
+    }
+
+    #[test]
+    fn bare_f_toggles_hide_filter_bar_in_panes_focus() {
+        let mut state = state_with_three_panes();
+        let flag = AtomicBool::new(false);
+        assert!(!state.hide_filter_bar, "filter bar starts visible");
+        handle_key_event(key(KeyCode::Char('f')), &mut state, &flag);
+        assert!(state.hide_filter_bar, "f hides the filter bar");
+        handle_key_event(key(KeyCode::Char('f')), &mut state, &flag);
+        assert!(!state.hide_filter_bar, "f shows the filter bar again");
+    }
+
+    #[test]
+    fn tab_does_not_cycle_filter_when_bar_hidden() {
+        let mut state = state_with_three_panes();
+        state.hide_filter_bar = true;
+        state.global.status_filter = StatusFilter::All;
+        let flag = AtomicBool::new(false);
+        handle_key_event(key(KeyCode::Tab), &mut state, &flag);
+        assert_eq!(state.global.status_filter, StatusFilter::All);
     }
 
     #[test]

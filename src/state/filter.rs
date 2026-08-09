@@ -109,7 +109,7 @@ impl AppState {
     pub fn status_counts(&self) -> (usize, usize, usize, usize, usize, usize) {
         let (mut running, mut background, mut waiting, mut idle, mut error) = (0, 0, 0, 0, 0);
         for group in &self.repo_groups {
-            if !self.global.repo_filter.matches_group(&group.name) {
+            if !self.effective_repo_filter().matches_group(&group.name) {
                 continue;
             }
             for (pane, _) in &group.panes {

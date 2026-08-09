@@ -21,12 +21,12 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
     let theme = &state.theme;
 
     let mut collected = CollectedRows::default();
-    let filter = state.global.status_filter;
+    let filter = state.effective_status_filter();
     let mut first_group = true;
     let mut row_index: usize = 0;
 
     for group in &state.repo_groups {
-        if !state.global.repo_filter.matches_group(&group.name) {
+        if !state.effective_repo_filter().matches_group(&group.name) {
             continue;
         }
         let filtered_panes: Vec<_> = group

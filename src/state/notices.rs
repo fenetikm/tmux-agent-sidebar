@@ -85,6 +85,14 @@ pub struct NoticesCopyTarget {
 }
 
 impl AppState {
+    /// Whether the secondary header should show the notices indicator.
+    pub fn has_notices_header(&self) -> bool {
+        debug_forced_display()
+            || self.version_notice.is_some()
+            || self.notices.claude_plugin_notice.is_some()
+            || !self.notices.missing_hook_groups.is_empty()
+    }
+
     /// Resolve the notices popup inputs once.
     ///
     /// Every input is static for the sidebar's lifetime:

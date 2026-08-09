@@ -111,8 +111,8 @@ impl AppState {
         self.layout.pane_row_targets.clear();
         for pane_id in crate::group::visible_pane_ids(
             &self.repo_groups,
-            self.global.status_filter,
-            &self.global.repo_filter,
+            self.effective_status_filter(),
+            &self.effective_repo_filter(),
         ) {
             self.layout.pane_row_targets.push(RowTarget { pane_id });
         }
@@ -135,6 +135,19 @@ impl AppState {
         self.compact_rows = !self.compact_rows;
         let value = if self.compact_rows { "on" } else { "off" };
         crate::tmux::run_tmux(&["set", "-g", crate::tmux::SIDEBAR_COMPACT, value]);
+        self.rebuild_row_targets();
+    }
+
+    /// Hide or show the status filter bar and persist to
+    /// `@sidebar_hide_filter_bar`. While hidden the list always uses the
+    /// All filter and status-filter keybindings are ignored.
+    pub fn toggle_hide_filter_bar(&mut self) {
+        self.hide_filter_bar = !self.hide_filter_bar;
+        let value = if self.hide_filter_bar { "on" } else { "off" };
+        crate::tmux::run_tmux(&["set", "-g", crate::tmux::SIDEBAR_HIDE_FILTER_BAR, value]);
+        if self.hide_filter_bar && self.focus_state.focus == crate::state::Focus::Filter {
+            self.focus_state.focus = crate::state::Focus::Panes;
+        }
         self.rebuild_row_targets();
     }
 
@@ -191,6 +204,9 @@ impl AppState {
     /// Debounces rapid clicks to ignore phantom mouse events from tmux
     /// pane resize/layout changes.
     pub fn handle_filter_click(&mut self, col: u16) {
+        if self.hide_filter_bar {
+            return;
+        }
         const DEBOUNCE_MS: u128 = 150;
         let now = std::time::Instant::now();
         if now
@@ -239,6 +255,9 @@ impl AppState {
             .is_some_and(|notices_col| col == notices_col)
         {
             self.toggle_notices_popup();
+            return;
+        }
+        if self.hide_repo_filter {
             return;
         }
         if self
@@ -309,11 +328,13 @@ impl AppState {
             return;
         }
 
-        if rel_row == 0 {
+        if rel_row == 0 && !self.hide_filter_bar {
             self.handle_filter_click(col);
             return;
         }
-        if rel_row == 1 {
+        if let Some(row) = self.secondary_header_row()
+            && rel_row == row
+        {
             self.handle_secondary_header_click(col);
             return;
         }
@@ -343,7 +364,8 @@ impl AppState {
             return;
         }
 
-        let line_index = (rel_row as usize - 2) + self.scrolls.panes.offset;
+        let line_index =
+            (rel_row as usize - self.list_start_row() as usize) + self.scrolls.panes.offset;
         if let Some(Some(agent_row)) = self.layout.line_to_row.get(line_index) {
             self.global.selected_pane_row = *agent_row;
             self.global.queue_cursor_save();

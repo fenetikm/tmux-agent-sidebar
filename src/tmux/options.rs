@@ -94,6 +94,12 @@ pub const SIDEBAR_PET: &str = "@sidebar_pet";
 pub const SIDEBAR_SHOW_SESSION_NAMES: &str = "@sidebar_show_session_names";
 /// Render every agent entry in exactly two lines. Off by default.
 pub const SIDEBAR_COMPACT: &str = "@sidebar_compact";
+/// Hide the status filter bar and show all agents regardless of
+/// `@sidebar_filter`. Off by default.
+pub const SIDEBAR_HIDE_FILTER_BAR: &str = "@sidebar_hide_filter_bar";
+/// Hide the repo filter button (`— ▾`) and show all repositories regardless
+/// of `@sidebar_repo_filter`. Off by default.
+pub const SIDEBAR_HIDE_REPO_FILTER: &str = "@sidebar_hide_repo_filter";
 pub const SIDEBAR_NOTIFICATIONS: &str = "@sidebar_notifications";
 pub const SIDEBAR_NOTIFICATIONS_EVENTS: &str = "@sidebar_notifications_events";
 pub const SIDEBAR_NOTIFICATIONS_BACKEND: &str = "@sidebar_notifications_backend";
