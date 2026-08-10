@@ -94,14 +94,14 @@ pub fn compact_rows_from_tmux() -> bool {
 /// Accepts `on`/`off`, `true`/`false`, `1`/`0` (case-insensitive).
 pub fn hide_filter_bar_from_options(opts: &HashMap<String, String>) -> bool {
     opts.get(tmux::SIDEBAR_HIDE_FILTER_BAR)
-        .map(|s| s.trim().to_ascii_lowercase())
-        .map(|s| matches!(s.as_str(), "on" | "true" | "1" | "yes"))
+        .map(|s| parse_tmux_truthy(s))
         .unwrap_or(false)
 }
 
 pub fn hide_filter_bar_from_tmux() -> bool {
-    let opts = crate::tmux::get_all_global_options();
-    hide_filter_bar_from_options(&opts)
+    tmux::get_option(tmux::SIDEBAR_HIDE_FILTER_BAR)
+        .map(|s| parse_tmux_truthy(&s))
+        .unwrap_or(false)
 }
 
 /// Read `@sidebar_hide_repo_filter` from tmux global options, defaulting to
@@ -109,14 +109,35 @@ pub fn hide_filter_bar_from_tmux() -> bool {
 /// Accepts `on`/`off`, `true`/`false`, `1`/`0` (case-insensitive).
 pub fn hide_repo_filter_from_options(opts: &HashMap<String, String>) -> bool {
     opts.get(tmux::SIDEBAR_HIDE_REPO_FILTER)
-        .map(|s| s.trim().to_ascii_lowercase())
-        .map(|s| matches!(s.as_str(), "on" | "true" | "1" | "yes"))
+        .map(|s| parse_tmux_truthy(s))
         .unwrap_or(false)
 }
 
 pub fn hide_repo_filter_from_tmux() -> bool {
-    let opts = crate::tmux::get_all_global_options();
-    hide_repo_filter_from_options(&opts)
+    tmux::get_option(tmux::SIDEBAR_HIDE_REPO_FILTER)
+        .map(|s| parse_tmux_truthy(&s))
+        .unwrap_or(false)
+}
+
+fn parse_tmux_truthy(raw: &str) -> bool {
+    matches!(
+        raw.trim().to_ascii_lowercase().as_str(),
+        "on" | "true" | "1" | "yes"
+    )
+}
+
+/// Apply layout-related sidebar options from a single `show -g` snapshot.
+/// Called at startup and whenever tmux globals are re-synced.
+pub fn apply_sidebar_ui_options(state: &mut AppState, opts: &HashMap<String, String>) {
+    state.bottom_panel_height = bottom_panel_height_from_options(opts);
+    state.pet_enabled = pet_enabled_from_options(opts);
+    state.show_session_names = show_session_names_from_options(opts);
+    state.compact_rows = compact_rows_from_options(opts);
+    state.hide_filter_bar = hide_filter_bar_from_options(opts);
+    state.hide_repo_filter = hide_repo_filter_from_options(opts);
+    if state.hide_filter_bar && state.focus_state.focus == crate::state::Focus::Filter {
+        state.focus_state.focus = crate::state::Focus::Panes;
+    }
 }
 
 // ── public entry point ──────────────────────────────────────────────
@@ -369,5 +390,14 @@ mod tests {
                 "{value:?} should leave the repo filter visible"
             );
         }
+    }
+
+    #[test]
+    fn apply_sidebar_ui_options_hides_status_filter_bar() {
+        let mut state = AppState::new("%0".into());
+        let opts = opts_with(tmux::SIDEBAR_HIDE_FILTER_BAR, "on");
+        apply_sidebar_ui_options(&mut state, &opts);
+        assert!(state.hide_filter_bar);
+        assert!(!state.show_filter_bar());
     }
 }

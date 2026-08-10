@@ -13,16 +13,13 @@ use crate::ui;
 /// the first refresh pass.
 pub(super) fn init_state(tmux_pane: String) -> AppState {
     let mut state = AppState::new(tmux_pane);
-    state.theme = ui::colors::ColorTheme::from_tmux();
-    state.icons = ui::icons::StatusIcons::from_tmux();
-    state.bottom_panel_height = ui::bottom_panel_height_from_tmux();
-    state.pet_enabled = ui::pet_enabled_from_tmux();
-    state.show_session_names = ui::show_session_names_from_tmux();
-    state.compact_rows = ui::compact_rows_from_tmux();
+    let opts = tmux::get_all_global_options();
+    state.theme = ui::colors::ColorTheme::from_options(&opts);
+    state.icons = ui::icons::StatusIcons::from_options(&opts);
+    ui::apply_sidebar_ui_options(&mut state, &opts);
     state.hide_filter_bar = ui::hide_filter_bar_from_tmux();
     state.hide_repo_filter = ui::hide_repo_filter_from_tmux();
-    state.global.load_from_tmux();
-    let opts = tmux::get_all_global_options();
+    state.global.apply_all(&opts);
     state.sessions.height_mode = sessions_panel_height_from_options(&opts);
     state.sessions.current_tmux_session =
         tmux::display_message(&state.tmux_pane, "#{session_name}");

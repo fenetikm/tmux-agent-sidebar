@@ -171,19 +171,33 @@ pub fn get_option(name: &str) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+/// Parse `tmux show -g` output into an option map. Values may contain
+/// spaces; the key is always the first whitespace-delimited token.
+pub(crate) fn parse_global_options_output(
+    output: &str,
+) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    for line in output.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let mut parts = line.split_whitespace();
+        let Some(key) = parts.next() else {
+            continue;
+        };
+        let value = parts.collect::<Vec<_>>().join(" ");
+        map.insert(key.to_string(), value.trim_matches('"').to_string());
+    }
+    map
+}
+
 /// Fetch all global tmux options in a single subprocess call.
 /// Returns a map of option name → value.
 pub fn get_all_global_options() -> std::collections::HashMap<String, String> {
-    let mut map = std::collections::HashMap::new();
-    if let Some(output) = run_tmux(&["show", "-g"]) {
-        for line in output.lines() {
-            // Format: "option-name value" or "@user_option value"
-            if let Some((key, value)) = line.split_once(' ') {
-                map.insert(key.to_string(), value.trim_matches('"').to_string());
-            }
-        }
-    }
-    map
+    run_tmux(&["show", "-g"])
+        .map(|output| parse_global_options_output(&output))
+        .unwrap_or_default()
 }
 
 pub fn set_pane_option(pane: &str, key: &str, value: &str) {
@@ -313,6 +327,25 @@ pub mod test_mock {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_global_options_output_accepts_tab_separated_lines() {
+        let map = parse_global_options_output("@sidebar_hide_filter_bar\ton\nstatus on\n");
+        assert_eq!(
+            map.get("@sidebar_hide_filter_bar").map(String::as_str),
+            Some("on")
+        );
+        assert_eq!(map.get("status").map(String::as_str), Some("on"));
+    }
+
+    #[test]
+    fn parse_global_options_output_preserves_values_with_spaces() {
+        let map = parse_global_options_output("@sidebar_filter running\n");
+        assert_eq!(
+            map.get("@sidebar_filter").map(String::as_str),
+            Some("running")
+        );
+    }
 
     #[test]
     fn mock_install_round_trips_pane_option() {

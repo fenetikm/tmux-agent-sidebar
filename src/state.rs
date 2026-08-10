@@ -247,6 +247,26 @@ impl AppState {
         !self.hide_repo_filter
     }
 
+    /// Re-read layout-related tmux globals (`@sidebar_hide_filter_bar`,
+    /// `@sidebar_hide_repo_filter`, compact mode, etc.) and rebuild row
+    /// targets when header visibility changes.
+    pub(crate) fn sync_sidebar_layout_options(&mut self) {
+        let opts = crate::tmux::get_all_global_options();
+        let prev_hide_filter = self.hide_filter_bar;
+        let prev_hide_repo = self.hide_repo_filter;
+        crate::ui::apply_sidebar_ui_options(self, &opts);
+        // Re-read through `show -gv` so a tab-separated bulk line cannot
+        // leave the hide flags stale.
+        self.hide_filter_bar = crate::ui::hide_filter_bar_from_tmux();
+        self.hide_repo_filter = crate::ui::hide_repo_filter_from_tmux();
+        if self.hide_filter_bar && self.focus_state.focus == crate::state::Focus::Filter {
+            self.focus_state.focus = crate::state::Focus::Panes;
+        }
+        if prev_hide_filter != self.hide_filter_bar || prev_hide_repo != self.hide_repo_filter {
+            self.rebuild_row_targets();
+        }
+    }
+
     /// Whether the secondary header row has anything to render.
     pub fn show_secondary_header(&self) -> bool {
         self.has_notices_header() || self.show_repo_filter()

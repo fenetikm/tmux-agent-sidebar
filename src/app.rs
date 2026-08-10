@@ -88,6 +88,7 @@ pub fn run(
         if sigusr1 || last_refresh.elapsed() >= refresh_interval {
             if sigusr1 {
                 state.refresh_current_tmux_session();
+                state.sync_sidebar_layout_options();
             }
             let previous_focused_pane_id = state.focus_state.focused_pane_id.clone();
             let is_window_active = state.refresh();
@@ -98,6 +99,7 @@ pub fn run(
             if is_window_active {
                 if window_inactive_count >= 2 {
                     state.global.load_from_tmux();
+                    state.sync_sidebar_layout_options();
                     if !sigusr1 {
                         state.refresh_current_tmux_session();
                         state.sessions.refresh_rows(&state.repo_groups);

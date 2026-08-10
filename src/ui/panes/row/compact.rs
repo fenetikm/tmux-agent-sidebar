@@ -12,21 +12,16 @@ use crate::ui::text::{
     wrap_text_char,
 };
 
-/// Placeholder for line 2 when a pane has nothing to report, or when the
-/// width leaves no room for real content. Rendering a visible `-` rather
-/// than whitespace lets the reader tell "nothing to say" apart from a
-/// drawing fault, and keeps the two-line shape legible.
-const EMPTY_BODY: &str = "-";
-
 /// Columns reserved for the `  ` indent at the start of line 2.
 const BODY_PREFIX_WIDTH: usize = 2;
 
-/// Render one agent entry as exactly two lines.
+/// Render one agent entry in compact mode: always one header line, plus an
+/// optional second line when there is contextual detail to show.
 ///
 /// Line 1 fuses what the expanded rows split across the status row and the
 /// branch row (`marker_ctx`, including selection background when selected).
 /// Line 2 carries a single contextual detail (`plain_ctx`, same marker but
-/// no selection background on the text).
+/// no selection background on the text) and is omitted when empty.
 pub(super) fn render_pane_lines(
     pane: &crate::tmux::PaneInfo,
     git_info: &crate::group::PaneGitInfo,
@@ -36,10 +31,18 @@ pub(super) fn render_pane_lines(
     spinner_frame: usize,
     now: u64,
 ) -> Vec<Line<'static>> {
-    vec![
-        header_line(pane, git_info, marker_ctx, icons, spinner_frame, now),
-        body_line(pane, plain_ctx),
-    ]
+    let mut lines = vec![header_line(
+        pane,
+        git_info,
+        marker_ctx,
+        icons,
+        spinner_frame,
+        now,
+    )];
+    if let Some(line) = body_line(pane, plain_ctx) {
+        lines.push(line);
+    }
+    lines
 }
 
 /// `status icon · provider glyph · badge · branch` on the left, elapsed on
@@ -119,7 +122,7 @@ fn header_line(
 /// The single most actionable detail for this pane, as `(text, colour,
 /// is_response)`. Precedence matches the expanded path's top-to-bottom
 /// order, so compact mode shows whichever row expanded mode shows first.
-/// An empty text means "nothing to report" and renders as [`EMPTY_BODY`].
+/// An empty text means "nothing to report" and omits line 2 entirely.
 fn body_content(pane: &crate::tmux::PaneInfo, ctx: &RowCtx) -> (String, Color, bool) {
     let theme = ctx.theme;
 
@@ -153,7 +156,7 @@ fn body_content(pane: &crate::tmux::PaneInfo, ctx: &RowCtx) -> (String, Color, b
     (String::new(), theme.text_muted, false)
 }
 
-fn body_line(pane: &crate::tmux::PaneInfo, ctx: &RowCtx) -> Line<'static> {
+fn body_line(pane: &crate::tmux::PaneInfo, ctx: &RowCtx) -> Option<Line<'static>> {
     let (text, color, is_response) = body_content(pane, ctx);
 
     // `wrap_text` with `max_lines: 1` already ellipsizes on overflow, so
@@ -168,25 +171,15 @@ fn body_line(pane: &crate::tmux::PaneInfo, ctx: &RowCtx) -> Line<'static> {
     let shown = wrapped.into_iter().next().unwrap_or_default();
 
     if shown.is_empty() || shown == "…" {
-        // Either there was nothing to say, or the width left no room for
-        // it. Both read better as a muted dash than as a blank line.
-        let text = truncate_to_width(&format!("  {}", EMPTY_BODY), ctx.inner_width);
-        let width = display_width(&text);
-        return ctx.row_line(
-            vec![Span::styled(
-                text,
-                ctx.apply_bg(Style::default().fg(ctx.theme.text_muted)),
-            )],
-            width,
-        );
+        return None;
     }
 
     let text = format!("  {}", shown);
     let width = display_width(&text);
-    ctx.row_line(
+    Some(ctx.row_line(
         vec![Span::styled(text, ctx.apply_bg(Style::default().fg(color)))],
         width,
-    )
+    ))
 }
 
 #[cfg(test)]
@@ -245,14 +238,13 @@ mod tests {
         }
     }
 
-    /// Render both lines to plain text, one per output line, with the
-    /// trailing pad stripped so the snapshot shows content not whitespace.
+    /// Render lines to plain text, one per output line, with the trailing
+    /// pad stripped so the snapshot shows content not whitespace.
     fn render(pane: &PaneInfo, git_info: &PaneGitInfo, width: usize) -> String {
         let theme = ColorTheme::default();
         let c = ctx(&theme, width);
         let lines = render_pane_lines(pane, git_info, &c, &c, &StatusIcons::default(), 0, NOW);
-        assert_eq!(lines.len(), 2, "compact rows are always exactly two lines");
-        lines
+        let out = lines
             .iter()
             .map(|line| {
                 line.spans
@@ -263,7 +255,8 @@ mod tests {
                     .to_string()
             })
             .collect::<Vec<_>>()
-            .join("\n")
+            .join("\n");
+        out
     }
 
     #[test]
@@ -348,23 +341,21 @@ mod tests {
     }
 
     #[test]
-    fn body_falls_back_to_dash_when_there_is_nothing_to_report() {
+    fn body_omits_second_line_when_there_is_nothing_to_report() {
         // Running with no prompt, no wait reason, no background command.
         let p = pane(PaneStatus::Running);
-        insta::assert_snapshot!(render(&p, &git("main"), 44), @"● ✳ auto main                          3m20s
-  -");
+        insta::assert_snapshot!(render(&p, &git("main"), 44), @"  ● ✳ auto main                          3m20s");
     }
 
     #[test]
-    fn body_falls_back_to_dash_when_the_prompt_truncates_away() {
+    fn body_omits_second_line_when_the_prompt_truncates_away() {
         let mut p = pane(PaneStatus::Running);
         p.prompt = "a prompt with no room to render".into();
-        insta::assert_snapshot!(render(&p, &git("main"), 3), @"● ✳ auto
-  -");
+        insta::assert_snapshot!(render(&p, &git("main"), 3), @"  ● ✳ auto");
     }
 
     #[test]
-    fn every_status_produces_exactly_two_lines() {
+    fn every_status_produces_at_most_two_lines() {
         let theme = ColorTheme::default();
         for status in [
             PaneStatus::Running,
@@ -385,10 +376,10 @@ mod tests {
                     0,
                     NOW,
                 );
-                assert_eq!(
-                    lines.len(),
-                    2,
-                    "status {status:?} at width {width} must render two lines"
+                assert!(
+                    (1..=2).contains(&lines.len()),
+                    "status {status:?} at width {width} must render one or two lines, got {}",
+                    lines.len()
                 );
             }
         }

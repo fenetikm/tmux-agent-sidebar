@@ -105,7 +105,7 @@ impl ColorTheme {
         Self::from_options(&all_opts)
     }
 
-    fn from_options(all_opts: &std::collections::HashMap<String, String>) -> Self {
+    pub(crate) fn from_options(all_opts: &std::collections::HashMap<String, String>) -> Self {
         let mut theme = Self::default();
 
         let read = |var: &str, fallback: Color| -> Color {
