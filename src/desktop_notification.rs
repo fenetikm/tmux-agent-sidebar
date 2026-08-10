@@ -400,6 +400,14 @@ fn send_desktop_notification(
     title: &str,
     body: &str,
 ) -> Result<(), String> {
+    // Unit tests exercise the full notify path (gate, fingerprint, stamp write)
+    // but must not spawn osascript/notify-send on the developer's machine.
+    #[cfg(test)]
+    {
+        let _ = (settings, targets, title, body);
+        return Ok(());
+    }
+
     #[cfg(target_os = "macos")]
     {
         match settings.backend {
