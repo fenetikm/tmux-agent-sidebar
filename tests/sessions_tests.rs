@@ -50,7 +50,7 @@ fn setup_single_session_state() -> tmux_agent_sidebar::state::AppState {
 #[test]
 fn snapshot_sessions_panel_three_sessions() {
     let mut state = setup_three_sessions_state();
-    insta::assert_snapshot!(render_to_string(&mut state, 28, 18), @r"
+    insta::assert_snapshot!(render_to_string(&mut state, 28, 18), @"
     feat · (1)
     main · (3)
     ◐ work · (2)
@@ -59,7 +59,7 @@ fn snapshot_sessions_panel_three_sessions() {
     ⓘ                        — ▾
     project
     ┃ ○ claude
-        Waiting for prompt…
+    ┃   Waiting for prompt…
       ○ claude
         Waiting for prompt…
       ○ claude
@@ -75,19 +75,19 @@ fn snapshot_sessions_panel_three_sessions() {
 #[test]
 fn snapshot_sessions_panel_hidden_single_session() {
     let mut state = setup_single_session_state();
-    insta::assert_snapshot!(render_to_string(&mut state, 28, 18), @r"
+    insta::assert_snapshot!(render_to_string(&mut state, 28, 18), @"
      ≡1  ●0  ◎0  ◐0  ○1  ✕0
     ⓘ                        — ▾
     project
     ┃ ○ claude
-        Waiting for prompt…
+    ┃   Waiting for prompt…
     ");
 }
 
 #[test]
 fn snapshot_sessions_panel_current_session_accent() {
     let mut state = setup_three_sessions_state();
-    insta::assert_snapshot!(render_to_styled_string(&mut state, 28, 18), @r"
+    insta::assert_snapshot!(render_to_styled_string(&mut state, 28, 18), @"
     f[fg:255]e[fg:255]a[fg:255]t[fg:255] [fg:255]·[fg:255] [fg:255]([fg:255]1[fg:255])[fg:255]
     m[fg:153]a[fg:153]i[fg:153]n[fg:153] [fg:153]·[fg:153] [fg:153]([fg:153]3[fg:153])[fg:153]
     ◐[fg:255] [fg:255]w[fg:255]o[fg:255]r[fg:255]k[fg:255] [fg:255]·[fg:255] [fg:255]([fg:255]2[fg:255])[fg:255]
@@ -96,7 +96,7 @@ fn snapshot_sessions_panel_current_session_accent() {
     ⓘ[fg:221]                        —[fg:252] ▾[fg:252]
     p[fg:153]r[fg:153]o[fg:153]j[fg:153]e[fg:153]c[fg:153]t[fg:153]
     ┃[fg:153,bg:239] [bg:239]○[fg:110,bg:239] [fg:174,bg:239]c[fg:174,bg:239]l[fg:174,bg:239]a[fg:174,bg:239]u[fg:174,bg:239]d[fg:174,bg:239]e[fg:174,bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239]
-       [fg:255] [fg:255]W[fg:255]a[fg:255]i[fg:255]t[fg:255]i[fg:255]n[fg:255]g[fg:255] [fg:255]f[fg:255]o[fg:255]r[fg:255] [fg:255]p[fg:255]r[fg:255]o[fg:255]m[fg:255]p[fg:255]t[fg:255]…[fg:255]
+    ┃[fg:153,bg:239]  [fg:255] [fg:255]W[fg:255]a[fg:255]i[fg:255]t[fg:255]i[fg:255]n[fg:255]g[fg:255] [fg:255]f[fg:255]o[fg:255]r[fg:255] [fg:255]p[fg:255]r[fg:255]o[fg:255]m[fg:255]p[fg:255]t[fg:255]…[fg:255]
       ○[fg:110] [fg:174]c[fg:174]l[fg:174]a[fg:174]u[fg:174]d[fg:174]e[fg:174]
        [fg:244] [fg:244]W[fg:244]a[fg:244]i[fg:244]t[fg:244]i[fg:244]n[fg:244]g[fg:244] [fg:244]f[fg:244]o[fg:244]r[fg:244] [fg:244]p[fg:244]r[fg:244]o[fg:244]m[fg:244]p[fg:244]t[fg:244]…[fg:244]
       ○[fg:110] [fg:174]c[fg:174]l[fg:174]a[fg:174]u[fg:174]d[fg:174]e[fg:174]

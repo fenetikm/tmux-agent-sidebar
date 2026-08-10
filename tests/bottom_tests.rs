@@ -814,14 +814,14 @@ fn snapshot_subagents_tree_ui() {
     state.rebuild_row_targets();
 
     let output = render_to_string(&mut state, 40, 28);
-    insta::assert_snapshot!(output, @r"
+    insta::assert_snapshot!(output, @"
      ≡1  ●1  ◎0  ◐0  ○0  ✕0
     ⓘ                                    — ▾
     project
     ┃ ● claude
-        ├ Explore #1
-        ├ Plan #2
-        └ Explore #2
+    ┃   ├ Explore #1
+    ┃   ├ Plan #2
+    ┃   └ Explore #2
     ╭ Activity │ Git ──────────────────────╮
     │            No activity yet           │
     ╰──────────────────────────────────────╯
@@ -851,13 +851,13 @@ fn snapshot_subagent_long_name_truncated_ui() {
 
     // Narrow width (28) to force truncation of long subagent names
     let output = render_to_string(&mut state, 28, 27);
-    insta::assert_snapshot!(output, @r"
+    insta::assert_snapshot!(output, @"
      ≡1  ●1  ◎0  ◐0  ○0  ✕0
     ⓘ                        — ▾
     project
     ┃ ● claude
-        ├ superpowers:code-revi…
-        └ claude-code-guide #2
+    ┃   ├ superpowers:code-revi…
+    ┃   └ claude-code-guide #2
     ╭ Activity │ Git ──────────╮
     │      No activity yet     │
     ╰──────────────────────────╯
@@ -887,12 +887,12 @@ fn snapshot_activity_empty_centered_ui() {
     // No activity entries — should show centered "No activity yet"
 
     let output = render_to_string(&mut state, 28, 26);
-    insta::assert_snapshot!(output, @r"
+    insta::assert_snapshot!(output, @"
      ≡1  ●0  ◎0  ◐0  ○1  ✕0
     ⓘ                        — ▾
     project
     ┃ ○ claude
-        Waiting for prompt…
+    ┃   Waiting for prompt…
     ╭ Activity │ Git ──────────╮
     │      No activity yet     │
     ╰──────────────────────────╯
@@ -918,12 +918,12 @@ fn snapshot_git_clean_centered_ui() {
     // No git info — should show centered "Working tree clean"
 
     let output = render_to_string(&mut state, 28, 26);
-    insta::assert_snapshot!(output, @r"
+    insta::assert_snapshot!(output, @"
      ≡1  ●0  ◎0  ◐0  ○1  ✕0
     ⓘ                        — ▾
     project
     ┃ ○ claude
-        Waiting for prompt…
+    ┃   Waiting for prompt…
     ╭ Activity │ Git ──────────╮
     │    Working tree clean    │
     ╰──────────────────────────╯
@@ -1544,12 +1544,12 @@ fn test_pet_enabled_preserves_bottom_panel_border() {
     state.focus_state.sidebar_focused = false;
     state.pet_enabled = true;
 
-    insta::assert_snapshot!(render_to_string(&mut state, 40, 30), @r"
+    insta::assert_snapshot!(render_to_string(&mut state, 40, 30), @"
      ≡1  ●0  ◎0  ◐0  ○1  ✕0
     ⓘ                                    — ▾
     project
     ┃ ○ claude
-        Waiting for prompt…
+    ┃   Waiting for prompt…
       ▄ ▄
      ▄▀▀▀▄                             ████
       ▀ ▀                           ██ █  █

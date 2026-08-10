@@ -86,10 +86,10 @@ pub(super) fn render_pane_lines_with_options(
     // The left marker `┃` answers "where am I": accent for the pane that
     // currently holds tmux focus, the dimmer window color for other agents
     // sharing the sidebar's own window, blank for agents in other windows.
-    // To keep the accent compact it only appears on the status row and the
-    // branch/ports row (when present) - never on deeper details like task
-    // progress or prompt wrapping. The sidebar cursor position (`selected`)
-    // still paints the full pane with the selection background.
+    // It spans every row of the pane so the indicator reads as one vertical
+    // bar. The sidebar cursor position (`selected`) still paints only the
+    // status row with the selection background; deeper rows keep the marker
+    // but leave their text unhighlighted.
     let marker_fg = if active {
         Some(theme.accent)
     } else if same_window {
@@ -113,8 +113,8 @@ pub(super) fn render_pane_lines_with_options(
         active,
     };
     let plain_ctx = RowCtx {
-        marker_char: " ",
-        marker_style: Style::default(),
+        marker_char: marker_ctx.marker_char,
+        marker_style: marker_ctx.marker_style,
         inner_width: width.saturating_sub(2),
         theme,
         bg: None,
@@ -1219,9 +1219,9 @@ mod tests {
             lines
                 .iter()
                 .skip(1)
-                .flat_map(|line| &line.spans)
+                .flat_map(|line| line.spans.iter().skip(2))
                 .all(|span| span.style.bg != Some(theme.selection_bg)),
-            "content rows should not carry the selection background"
+            "content rows should not carry the selection background beyond the marker column"
         );
     }
 

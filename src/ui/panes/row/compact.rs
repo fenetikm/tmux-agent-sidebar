@@ -1,5 +1,5 @@
 use ratatui::{
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     text::{Line, Span},
 };
 
@@ -18,16 +18,15 @@ use crate::ui::text::{
 /// drawing fault, and keeps the two-line shape legible.
 const EMPTY_BODY: &str = "-";
 
-/// Columns reserved at the start of line 2, either for the `  ` indent or
-/// for the `▷ ` response arrow that replaces it.
+/// Columns reserved for the `  ` indent at the start of line 2.
 const BODY_PREFIX_WIDTH: usize = 2;
 
 /// Render one agent entry as exactly two lines.
 ///
 /// Line 1 fuses what the expanded rows split across the status row and the
-/// branch row, so it takes the `┃` focus marker (`marker_ctx`). Line 2
-/// carries a single contextual detail and no marker (`plain_ctx`), matching
-/// the expanded rule that the marker never reaches the deeper body rows.
+/// branch row (`marker_ctx`, including selection background when selected).
+/// Line 2 carries a single contextual detail (`plain_ctx`, same marker but
+/// no selection background on the text).
 pub(super) fn render_pane_lines(
     pane: &crate::tmux::PaneInfo,
     git_info: &crate::group::PaneGitInfo,
@@ -178,24 +177,6 @@ fn body_line(pane: &crate::tmux::PaneInfo, ctx: &RowCtx) -> Line<'static> {
                 text,
                 ctx.apply_bg(Style::default().fg(ctx.theme.text_muted)),
             )],
-            width,
-        );
-    }
-
-    if is_response {
-        let width = BODY_PREFIX_WIDTH + display_width(&shown);
-        return ctx.row_line(
-            vec![
-                Span::styled(
-                    "▷ ",
-                    ctx.apply_bg(
-                        Style::default()
-                            .fg(ctx.theme.response_arrow)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                ),
-                Span::styled(shown, ctx.apply_bg(Style::default().fg(color))),
-            ],
             width,
         );
     }
@@ -351,12 +332,12 @@ mod tests {
     }
 
     #[test]
-    fn body_prefixes_responses_with_an_arrow() {
+    fn body_shows_response_without_arrow() {
         let mut p = pane(PaneStatus::Running);
         p.prompt = "Done — the backend now dispatches by name".into();
         p.prompt_is_response = true;
         insta::assert_snapshot!(render(&p, &git("main"), 44), @"● ✳ auto main                          3m20s
-▷ Done — the backend now dispatches by name");
+  Done — the backend now dispatches by name");
     }
 
     #[test]
