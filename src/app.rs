@@ -39,6 +39,7 @@ pub fn run(
         session_rx,
         version_rx,
         git_tab_active,
+        git_poll_now,
     } = workers;
 
     let mut last_refresh = std::time::Instant::now();
@@ -85,25 +86,39 @@ pub fn run(
         }
 
         let sigusr1 = needs_refresh.swap(false, Ordering::Relaxed);
-        if sigusr1 || last_refresh.elapsed() >= refresh_interval {
-            if sigusr1 {
-                state.refresh_current_tmux_session();
-                state.sync_sidebar_layout_options();
+        if sigusr1 {
+            state.refresh_current_tmux_session();
+            let (focus_changed, is_window_active) = state.refresh_focus_fast();
+            if focus_changed {
+                git_poll_now.store(true, Ordering::Relaxed);
             }
+            if is_window_active {
+                if window_inactive_count >= 2 {
+                    state.global.load_from_tmux();
+                    state.sync_sidebar_layout_options();
+                    state.rebuild_row_targets();
+                }
+                window_inactive_count = 0;
+            } else {
+                window_inactive_count = window_inactive_count.saturating_add(1);
+            }
+            git_tab_active.store(state.bottom_tab == BottomTab::GitStatus, Ordering::Relaxed);
+            render::render_frame(terminal, &mut state)?;
+        }
+
+        if last_refresh.elapsed() >= refresh_interval {
             let previous_focused_pane_id = state.focus_state.focused_pane_id.clone();
             let is_window_active = state.refresh();
             if state.focus_state.focused_pane_id != previous_focused_pane_id {
-                render::refresh_git_for_focused_pane(&mut state);
+                git_poll_now.store(true, Ordering::Relaxed);
             }
             needs_redraw = true;
             if is_window_active {
                 if window_inactive_count >= 2 {
                     state.global.load_from_tmux();
                     state.sync_sidebar_layout_options();
-                    if !sigusr1 {
-                        state.refresh_current_tmux_session();
-                        state.sessions.refresh_rows(&state.repo_groups);
-                    }
+                    state.refresh_current_tmux_session();
+                    state.sessions.refresh_rows(&state.repo_groups);
                     state.rebuild_row_targets();
                 }
                 window_inactive_count = 0;

@@ -151,6 +151,25 @@ impl AppState {
         self.auto_switch_tab();
     }
 
+    /// Lightweight refresh on tmux pane/window focus change (SIGUSR1).
+    /// Updates focus markers, bottom-tab auto-switch, and the activity log
+    /// for the newly focused pane without running the full `list-panes -a`
+    /// scan. Returns `(focus_changed, window_active)`.
+    pub fn refresh_focus_fast(&mut self) -> (bool, bool) {
+        self.refresh_now();
+        let sidebar = tmux::get_sidebar_pane_info(&self.tmux_pane);
+        self.focus_state.sidebar_focused = sidebar.pane_active;
+        self.sidebar_window_id = sidebar.window_id.clone();
+        let previous_focused_pane_id = self.focus_state.focused_pane_id.clone();
+        self.find_focused_pane();
+        let focus_changed = self.focus_state.focused_pane_id != previous_focused_pane_id;
+        if focus_changed {
+            self.auto_switch_tab();
+        }
+        self.refresh_activity_log();
+        (focus_changed, sidebar.window_active)
+    }
+
     /// Fast refresh: tmux state + activity log (called every 1s).
     /// Returns whether the sidebar's window is the active tmux window.
     pub fn refresh(&mut self) -> bool {

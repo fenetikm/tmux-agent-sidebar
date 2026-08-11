@@ -17,6 +17,9 @@ pub(super) struct Workers {
     pub session_rx: Receiver<HashMap<String, String>>,
     pub version_rx: Receiver<UpdateNotice>,
     pub git_tab_active: Arc<AtomicBool>,
+    /// Set by the main loop on pane focus change so the git thread polls
+    /// immediately instead of waiting out its 2s sleep.
+    pub git_poll_now: Arc<AtomicBool>,
 }
 
 /// Spawn the background threads (git polling, session-name polling, version
@@ -28,8 +31,10 @@ pub(super) fn spawn(state: &AppState) -> Workers {
     let tmux_pane_clone = state.tmux_pane.clone();
     let git_tab_active = Arc::new(AtomicBool::new(state.bottom_tab == BottomTab::GitStatus));
     let git_tab_flag = Arc::clone(&git_tab_active);
+    let git_poll_now = Arc::new(AtomicBool::new(false));
+    let git_poll_flag = Arc::clone(&git_poll_now);
     std::thread::spawn(move || {
-        git_poll_loop(&tmux_pane_clone, &git_tx, &git_tab_flag);
+        git_poll_loop(&tmux_pane_clone, &git_tx, &git_tab_flag, &git_poll_flag);
     });
     std::thread::spawn(move || {
         session_poll_loop(&session_tx);
@@ -45,6 +50,7 @@ pub(super) fn spawn(state: &AppState) -> Workers {
         session_rx,
         version_rx,
         git_tab_active,
+        git_poll_now,
     }
 }
 
@@ -66,11 +72,18 @@ pub(super) fn session_poll_loop(tx: &mpsc::Sender<HashMap<String, String>>) {
 /// through an in-memory `(path, branch)`-keyed cache so `gh pr view` (the only
 /// hop that costs GitHub API quota) runs at most once per `PR_CACHE_TTL`
 /// instead of every tick.
-pub(super) fn git_poll_loop(tmux_pane: &str, git_tx: &mpsc::Sender<GitData>, active: &AtomicBool) {
+pub(super) fn git_poll_loop(
+    tmux_pane: &str,
+    git_tx: &mpsc::Sender<GitData>,
+    active: &AtomicBool,
+    poll_now: &AtomicBool,
+) {
     let mut last_path: Option<String> = None;
     let mut pr_cache = git::PrCache::new();
     loop {
-        std::thread::sleep(Duration::from_secs(2));
+        if !poll_now.swap(false, Ordering::Relaxed) {
+            std::thread::sleep(Duration::from_secs(2));
+        }
 
         if !active.load(Ordering::Relaxed) {
             continue;
