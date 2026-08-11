@@ -96,6 +96,43 @@ Because those options are only written when a desktop notification is actually d
 
 When no eligible pane has ever notified, or when the most recent notification came from the pane you are already in, the command writes a note to the tmux status line and exits `0`.
 
+### Focus by pane id
+
+`focus %pane_id` jumps directly to a specific tmux pane (for example `%34`). This is the companion to `list --json`: pipe the list through `fzf`, extract the chosen `pane_id`, and call `focus` on it. Numeric targets without a leading `%` remain sidebar index jumps — `focus 3` and `focus %3` are different operations.
+
+### Fuzzy picker with fzf
+
+`list` prints every agent pane the sidebar would show, in the same order as the pane list. Use `--json` when you want structured output for `jq`; the default is tab-separated columns (`index`, `agent`, `status`, `repo`, `prompt`, `pane_id`).
+
+```bash
+# Plain text — no jq required
+pane=$(tmux-agent-sidebar list | fzf | awk '{print $NF}')
+[ -n "$pane" ] && tmux-agent-sidebar focus "$pane"
+
+# JSON — richer display via the pre-built label field
+pane=$(
+  tmux-agent-sidebar list --json \
+    | jq -r '.panes[] | "\(.label)\t\(.pane_id)"' \
+    | fzf --delimiter=$'\t' --with-nth=1 \
+    | cut -f2
+)
+[ -n "$pane" ] && tmux-agent-sidebar focus "$pane"
+```
+
+Flags:
+
+| Flag | Effect |
+| ---- | ------ |
+| `--json` | Emit `{ "panes": [ … ] }` on stdout |
+| `--scope session` | Limit to the current tmux session |
+| `--all-panes` | Ignore `@sidebar_filter` / `@sidebar_repo_filter` |
+
+Example tmux binding:
+
+```tmux
+bind-key C-f run-shell 'pane=$(\"#{@agent_sidebar_bin}\" list | fzf | awk \"{print \\$NF}\") && [ -n \"$pane\" ] && \"#{@agent_sidebar_bin}\" focus \"$pane\"'
+```
+
 ## Example status line snippet
 
 ```bash

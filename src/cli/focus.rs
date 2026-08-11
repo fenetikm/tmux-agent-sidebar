@@ -12,11 +12,12 @@ enum Direction {
 /// What the user asked `focus` to jump to. `Cycle` is the original
 /// next/prev walk over the eligible pane list; `Notification` jumps
 /// straight to the most recently notified pane.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Target {
     Cycle(Direction),
     Notification,
     Index(u32),
+    PaneId(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -264,7 +265,7 @@ fn parse_index(value: &str) -> Option<u32> {
     (n >= 1).then_some(n)
 }
 
-fn load_sidebar_filters() -> (StatusFilter, RepoFilter) {
+pub(crate) fn load_sidebar_filters() -> (StatusFilter, RepoFilter) {
     let opts = crate::tmux::get_all_global_options();
     let status = if crate::ui::hide_filter_bar_from_options(&opts) {
         StatusFilter::All
@@ -308,11 +309,14 @@ fn focus_by_index(sessions: &[SessionInfo], index: u32) -> i32 {
 
 fn usage() {
     eprintln!(
-        "usage: tmux-agent-sidebar focus <next|prev|notification|<N>> [--scope <all|session>]"
+        "usage: tmux-agent-sidebar focus <next|prev|notification|<N>|%pane_id> [--scope <all|session>]"
     );
 }
 
 fn parse_target(value: &str) -> Option<Target> {
+    if value.starts_with('%') && value.len() > 1 {
+        return Some(Target::PaneId(value.to_string()));
+    }
     if let Some(index) = parse_index(value) {
         return Some(Target::Index(index));
     }
@@ -335,7 +339,7 @@ fn parse_args(args: &[String]) -> Result<(Target, Scope), ()> {
     while index < args.len() {
         match args[index].as_str() {
             "--scope" => {
-                if matches!(target, Target::Index(_)) {
+                if matches!(target, Target::Index(_) | Target::PaneId(_)) {
                     return Err(());
                 }
                 let value = args.get(index + 1).ok_or(())?;
@@ -380,6 +384,10 @@ pub fn cmd_focus(args: &[String]) -> i32 {
             focus_last_notification(&sessions, &active_pane_id, active_session.as_deref(), scope)
         }
         Target::Index(index) => focus_by_index(&sessions, index),
+        Target::PaneId(pane_id) => {
+            crate::tmux::select_pane(&pane_id);
+            0
+        }
         Target::Cycle(direction) => {
             let Some(target_pane_id) = select_target_pane(
                 &sessions,
@@ -696,6 +704,28 @@ mod tests {
             parse_args(&["2".into(), "--scope".into(), "session".into()]),
             Err(())
         );
+    }
+
+    #[test]
+    fn parse_args_accepts_pane_id_target() {
+        assert_eq!(
+            parse_args(&["%34".into()]),
+            Ok((Target::PaneId("%34".into()), Scope::All))
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_scope_with_pane_id() {
+        assert_eq!(
+            parse_args(&["%34".into(), "--scope".into(), "session".into()]),
+            Err(())
+        );
+    }
+
+    #[test]
+    fn parse_target_distinguishes_index_from_pane_id() {
+        assert_eq!(parse_target("3"), Some(Target::Index(3)));
+        assert_eq!(parse_target("%3"), Some(Target::PaneId("%3".into())));
     }
 
     #[test]

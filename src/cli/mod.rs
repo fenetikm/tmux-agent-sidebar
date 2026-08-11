@@ -2,6 +2,7 @@ pub mod capture;
 mod focus;
 mod hook;
 mod label;
+mod list;
 pub mod plugin_state;
 pub(crate) mod session_filter;
 pub(crate) mod setup;
@@ -28,6 +29,7 @@ pub fn run(args: &[String]) -> Option<i32> {
         "spawn" => spawn::cmd_spawn(rest),
         "capture" => capture::cmd_capture(rest),
         "focus" => focus::cmd_focus(rest),
+        "list" => list::cmd_list(rest),
         "--version" | "version" => {
             println!("{}", crate::VERSION);
             0
