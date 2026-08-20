@@ -17,8 +17,15 @@ pub(crate) fn exclude_window_patterns() -> Vec<String> {
 /// Read a tmux option and split it into whitespace-separated glob patterns.
 fn split_patterns(option: &str) -> Vec<String> {
     tmux::get_option(option)
-        .map(|value| value.split_whitespace().map(str::to_string).collect())
+        .map(|value| split_pattern_value(&value))
         .unwrap_or_default()
+}
+
+/// Split a raw option value into whitespace-separated glob patterns. Shared
+/// with callers that already hold the option value (e.g. the notification
+/// settings, which read every global option in one batch).
+pub(crate) fn split_pattern_value(raw: &str) -> Vec<String> {
+    raw.split_whitespace().map(str::to_string).collect()
 }
 
 /// True if `session_name` matches any session blocklist pattern.

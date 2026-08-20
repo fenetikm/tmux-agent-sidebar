@@ -4,6 +4,7 @@ use std::process::Stdio;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
+use crate::cli::session_filter;
 use crate::time::now_epoch_secs;
 use crate::tmux;
 
@@ -92,6 +93,12 @@ pub struct DesktopNotificationSettings {
     pub icon: Option<String>,
     pub click_script: Option<String>,
     pub sound: Option<String>,
+    /// Glob patterns from `@sidebar_exclude_sessions`. A pane whose session
+    /// name matches any of them is muted.
+    pub exclude_sessions: Vec<String>,
+    /// Glob patterns from `@sidebar_exclude_windows`. A pane whose window
+    /// name matches any of them is muted.
+    pub exclude_windows: Vec<String>,
 }
 
 impl Default for DesktopNotificationSettings {
@@ -103,6 +110,8 @@ impl Default for DesktopNotificationSettings {
             icon: None,
             click_script: None,
             sound: None,
+            exclude_sessions: Vec::new(),
+            exclude_windows: Vec::new(),
         }
     }
 }
@@ -136,6 +145,8 @@ impl DesktopNotificationSettings {
             icon: read_non_empty_trimmed(opts, tmux::SIDEBAR_NOTIFICATIONS_ICON),
             click_script: read_non_empty_trimmed(opts, tmux::SIDEBAR_NOTIFICATIONS_CLICK_SCRIPT),
             sound: read_non_empty_trimmed(opts, tmux::SIDEBAR_NOTIFICATIONS_SOUND),
+            exclude_sessions: read_patterns(opts, tmux::SIDEBAR_EXCLUDE_SESSIONS),
+            exclude_windows: read_patterns(opts, tmux::SIDEBAR_EXCLUDE_WINDOWS),
         }
     }
 
@@ -186,6 +197,12 @@ fn parse_backend(raw: Option<&String>) -> Option<DesktopNotificationBackend> {
 fn read_non_empty_trimmed(opts: &HashMap<String, String>, key: &str) -> Option<String> {
     let value = opts.get(key)?.trim();
     (!value.is_empty()).then(|| value.to_string())
+}
+
+fn read_patterns(opts: &HashMap<String, String>, key: &str) -> Vec<String> {
+    opts.get(key)
+        .map(|raw| session_filter::split_pattern_value(raw))
+        .unwrap_or_default()
 }
 
 fn parse_events(raw: &str) -> HashSet<DesktopNotificationEvent> {
@@ -248,12 +265,52 @@ pub fn notify_if_allowed(
     title: &str,
     body: &str,
 ) -> bool {
-    if !settings.enabled || pane_id.is_empty() || !settings.event_enabled(event) {
+    notify_if_allowed_with_display(
+        settings,
+        pane_id,
+        NotifyRequest {
+            kind,
+            event,
+            fingerprint,
+            title,
+            body,
+        },
+        tmux::display_message,
+    )
+}
+
+/// What to deliver, bundled so the notify helpers stay under clippy's
+/// argument-count threshold once the display seam is injected.
+struct NotifyRequest<'a> {
+    kind: DesktopNotificationKind,
+    event: DesktopNotificationEvent,
+    fingerprint: &'a str,
+    title: &'a str,
+    body: &'a str,
+}
+
+/// `display_fn` resolves the pane's session/window names for the blocklist
+/// check; injected so tests can drive the mute gate without a live tmux.
+fn notify_if_allowed_with_display<F>(
+    settings: &DesktopNotificationSettings,
+    pane_id: &str,
+    request: NotifyRequest<'_>,
+    display_fn: F,
+) -> bool
+where
+    F: Fn(&str, &str) -> String,
+{
+    if !settings.enabled || pane_id.is_empty() || !settings.event_enabled(request.event) {
+        return false;
+    }
+    // Checked before the cooldown stamp so a muted pane never has its
+    // notification options written.
+    if pane_notifications_muted_with_display(settings, pane_id, display_fn) {
         return false;
     }
 
-    let key = stamp_option_key(kind);
-    let normalized_fingerprint = normalize_fingerprint(fingerprint);
+    let key = stamp_option_key(request.kind);
+    let normalized_fingerprint = normalize_fingerprint(request.fingerprint);
     let now = now_epoch_secs();
     let current = tmux::get_pane_option_value(pane_id, key);
     if let Some(stamp) = parse_stamp(&current)
@@ -264,7 +321,7 @@ pub fn notify_if_allowed(
     }
 
     let targets = notification_targets_for_settings(settings, pane_id);
-    match send_desktop_notification(settings, &targets, title, body) {
+    match send_desktop_notification(settings, &targets, request.title, request.body) {
         Ok(()) => {
             tmux::set_pane_option(pane_id, key, &encode_stamp(now, &normalized_fingerprint));
             true
@@ -353,6 +410,39 @@ where
         session_id: display_fn(pane_id, "#{session_id}"),
         window_id: display_fn(pane_id, "#{window_id}"),
     }
+}
+
+/// True if `pane_id` lives in a session or window excluded by
+/// `@sidebar_exclude_sessions` / `@sidebar_exclude_windows`. Resolves both
+/// names in a single `display-message` call, and skips that subprocess
+/// entirely when neither blocklist is configured — the default.
+fn pane_notifications_muted_with_display<F>(
+    settings: &DesktopNotificationSettings,
+    pane_id: &str,
+    display_fn: F,
+) -> bool
+where
+    F: Fn(&str, &str) -> String,
+{
+    if settings.exclude_sessions.is_empty() && settings.exclude_windows.is_empty() {
+        return false;
+    }
+
+    let names = display_fn(pane_id, "#{session_name}\n#{window_name}");
+    let mut lines = names.lines();
+    let session_name = lines.next().unwrap_or_default();
+    let window_name = lines.next().unwrap_or_default();
+    names_muted(settings, session_name, window_name)
+}
+
+/// Pure half of the mute decision: does either name match its blocklist?
+fn names_muted(
+    settings: &DesktopNotificationSettings,
+    session_name: &str,
+    window_name: &str,
+) -> bool {
+    session_filter::session_excluded(session_name, &settings.exclude_sessions)
+        || session_filter::window_excluded(window_name, &settings.exclude_windows)
 }
 
 fn stamp_option_key(kind: DesktopNotificationKind) -> &'static str {
@@ -804,6 +894,7 @@ mod tests {
             icon: None,
             click_script: None,
             sound: None,
+            ..Default::default()
         };
 
         let targets =
@@ -830,6 +921,7 @@ mod tests {
             icon: None,
             click_script: Some("/tmp/focus.sh".into()),
             sound: None,
+            ..Default::default()
         };
 
         let targets =
@@ -857,6 +949,7 @@ mod tests {
             icon: None,
             click_script: Some("/tmp/focus.sh".into()),
             sound: None,
+            ..Default::default()
         };
         let calls = Cell::new(0);
 
@@ -950,6 +1043,7 @@ mod tests {
             icon: Some("/tmp/icon.png".into()),
             click_script: Some("/tmp/focus pane.sh".into()),
             sound: Some("default".into()),
+            ..Default::default()
         };
         let targets = NotificationTargets {
             pane_id: "%12".into(),
@@ -983,6 +1077,7 @@ mod tests {
             icon: None,
             click_script: None,
             sound: None,
+            ..Default::default()
         };
         let targets = NotificationTargets {
             pane_id: "%12".into(),
@@ -1168,5 +1263,144 @@ mod tests {
         assert_eq!(stamp_timestamp("no-separator"), None);
         assert_eq!(stamp_timestamp("notanumber|fingerprint"), None);
         assert_eq!(stamp_timestamp("|fingerprint"), None);
+    }
+}
+
+#[cfg(test)]
+mod exclusion_tests {
+    use super::*;
+    use std::cell::Cell;
+
+    fn settings_with_patterns(sessions: &[&str], windows: &[&str]) -> DesktopNotificationSettings {
+        DesktopNotificationSettings {
+            exclude_sessions: sessions.iter().map(|s| s.to_string()).collect(),
+            exclude_windows: windows.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn settings_parse_exclusion_patterns_from_tmux_options() {
+        let mut opts = HashMap::new();
+        opts.insert(
+            tmux::SIDEBAR_EXCLUDE_SESSIONS.into(),
+            "*_popup_* scratch".into(),
+        );
+        opts.insert(
+            tmux::SIDEBAR_EXCLUDE_WINDOWS.into(),
+            "logs scratch-?".into(),
+        );
+
+        let settings = DesktopNotificationSettings::from_tmux_options_with_backend(&opts, true);
+
+        assert_eq!(settings.exclude_sessions, vec!["*_popup_*", "scratch"]);
+        assert_eq!(settings.exclude_windows, vec!["logs", "scratch-?"]);
+    }
+
+    #[test]
+    fn settings_exclusion_patterns_default_to_empty() {
+        let opts = HashMap::new();
+        let settings = DesktopNotificationSettings::from_tmux_options_with_backend(&opts, true);
+
+        assert!(settings.exclude_sessions.is_empty());
+        assert!(settings.exclude_windows.is_empty());
+    }
+
+    #[test]
+    fn pane_muted_when_window_name_matches_pattern() {
+        let settings = settings_with_patterns(&[], &["logs"]);
+
+        assert!(names_muted(&settings, "main", "logs"));
+    }
+
+    #[test]
+    fn pane_muted_when_session_name_matches_pattern() {
+        let settings = settings_with_patterns(&["*_popup_*"], &[]);
+
+        assert!(names_muted(&settings, "feat_popup_1", "editor"));
+    }
+
+    #[test]
+    fn pane_not_muted_when_neither_name_matches() {
+        let settings = settings_with_patterns(&["*_popup_*"], &["logs"]);
+
+        assert!(!names_muted(&settings, "main", "editor"));
+    }
+
+    #[test]
+    fn pane_not_muted_when_no_patterns_configured() {
+        let settings = settings_with_patterns(&[], &[]);
+
+        assert!(!names_muted(&settings, "anything", "anything"));
+    }
+
+    #[test]
+    fn pane_muted_resolves_both_names_from_a_single_display_call() {
+        let settings = settings_with_patterns(&[], &["logs"]);
+        let calls = Cell::new(0);
+
+        let muted = pane_notifications_muted_with_display(&settings, "%12", |_, _| {
+            calls.set(calls.get() + 1);
+            "main\nlogs".to_string()
+        });
+
+        assert!(muted);
+        assert_eq!(calls.get(), 1);
+    }
+
+    fn stop_request() -> NotifyRequest<'static> {
+        NotifyRequest {
+            kind: DesktopNotificationKind::TaskCompleted,
+            event: DesktopNotificationEvent::Stop,
+            fingerprint: "fingerprint",
+            title: "title",
+            body: "body",
+        }
+    }
+
+    #[test]
+    fn notify_if_allowed_mutes_an_excluded_window_without_writing_a_stamp() {
+        let _guard = tmux::test_mock::install();
+        let settings = settings_with_patterns(&[], &["logs"]);
+
+        let sent = notify_if_allowed_with_display(&settings, "%12", stop_request(), |_, _| {
+            "main\nlogs".to_string()
+        });
+
+        assert!(!sent);
+        assert!(!tmux::test_mock::contains(
+            "%12",
+            stamp_option_key(DesktopNotificationKind::TaskCompleted)
+        ));
+    }
+
+    #[test]
+    fn notify_if_allowed_sends_for_a_window_outside_the_blocklist() {
+        let _guard = tmux::test_mock::install();
+        let settings = settings_with_patterns(&[], &["logs"]);
+
+        let sent = notify_if_allowed_with_display(&settings, "%12", stop_request(), |_, _| {
+            "main\neditor".to_string()
+        });
+
+        assert!(sent);
+        assert!(tmux::test_mock::contains(
+            "%12",
+            stamp_option_key(DesktopNotificationKind::TaskCompleted)
+        ));
+    }
+
+    #[test]
+    fn pane_muted_skips_the_name_lookup_when_no_patterns_configured() {
+        let settings = settings_with_patterns(&[], &[]);
+        let calls = Cell::new(0);
+
+        let muted = pane_notifications_muted_with_display(&settings, "%12", |_, _| {
+            calls.set(calls.get() + 1);
+            "main\nlogs".to_string()
+        });
+
+        assert!(!muted);
+        assert_eq!(calls.get(), 0);
     }
 }

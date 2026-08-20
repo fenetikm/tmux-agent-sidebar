@@ -11,8 +11,8 @@ Most options must be set **before** loading the plugin in your `tmux.conf`. Colo
 | -------------------------------- | ------- | --------------------------------------------------------------------------------------- |
 | `@sidebar_key`                   | `e`     | Prefix-triggered keybinding to toggle the sidebar in the current window                 |
 | `@sidebar_key_all`               | `E`     | Prefix-triggered keybinding to toggle the sidebar in all windows                        |
-| `@sidebar_exclude_sessions`      | unset   | Space-separated glob patterns (`*` and `?`); matching session names are excluded from automatic sidebar creation (`toggle-all` and the new-window hook), while manual toggle still works |
-| `@sidebar_exclude_windows`       | unset   | Space-separated glob patterns (`*` and `?`); matching window names are excluded from automatic sidebar creation (`toggle-all` and the new-window hook), while manual toggle still works |
+| `@sidebar_exclude_sessions`      | unset   | Space-separated glob patterns (`*` and `?`); matching session names are excluded from automatic sidebar creation (`toggle-all` and the new-window hook) and fire no desktop notifications, while manual toggle still works |
+| `@sidebar_exclude_windows`       | unset   | Space-separated glob patterns (`*` and `?`); matching window names are excluded from automatic sidebar creation (`toggle-all` and the new-window hook) and fire no desktop notifications, while manual toggle still works |
 | `@sidebar_width`                 | `15%`   | Width in columns or as a percentage                                                     |
 | `@sidebar_position`              | `left`  | Sidebar placement (`left` or `right`)                                                   |
 | `@sidebar_bottom_height`         | `20`    | Bottom panel height in lines (set `0` to hide)                                          |

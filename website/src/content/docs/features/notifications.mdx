@@ -34,6 +34,17 @@ set -g @sidebar_notifications_events all                                 # expli
 
 An empty value disables every event without touching the master `@sidebar_notifications` switch.
 
+## Muting sessions and windows
+
+The two exclusion options double as a notification blocklist. A pane whose tmux session name matches `@sidebar_exclude_sessions`, or whose window name matches `@sidebar_exclude_windows`, fires no desktop notifications — the same glob patterns (`*` and `?`) that keep the sidebar from auto-creating there.
+
+```bash
+set -g @sidebar_exclude_sessions "*_popup_* scratch"
+set -g @sidebar_exclude_windows "logs scratch-?"
+```
+
+Because it is one shared list, muting a window also excludes it from automatic sidebar creation. Muted panes are skipped before the notification cooldown is recorded, so unsetting a pattern takes effect on the next event.
+
 ## Platform support
 
 - **macOS** uses `osascript` by default. Set `@sidebar_notifications_backend` to `terminal-notifier` to enable custom icons and click scripts.
