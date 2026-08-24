@@ -100,10 +100,6 @@ pub fn kill_window(window_id: &str) -> Result<(), String> {
     run_tmux_capture(&["kill-window", "-t", window_id]).map(|_| ())
 }
 
-pub fn switch_to_session(name: &str) {
-    let _ = run_tmux(&["switch-client", "-t", name]);
-}
-
 pub fn select_pane(pane_id: &str) {
     // Find the session containing this pane and switch to it first
     let session_id = display_message(pane_id, "#{session_id}");

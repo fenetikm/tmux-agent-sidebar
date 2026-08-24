@@ -81,10 +81,6 @@ Per-pane file-based state:
 | `now` | Every 1s | Current Unix epoch |
 | `scrolls.panes` | On user input / render | Agent list scroll position |
 | `scrolls.git` | On user input / render | Git status scroll position |
-| `sessions.rows` | Every 1s (refresh cycle) | Derived session rows: tmux session name, agent count, attention flag, current-session highlight |
-| `sessions.scroll` | On user input / render | Sessions panel scroll position (when fixed height or auto-cap is smaller than row count) |
-| `sessions.height_mode` | Once at startup | Parsed from `@sidebar_sessions_height` (`Hidden` / `Auto` / `Fixed(n)`) |
-| `sessions.current_tmux_session` | Once at startup; on SIGUSR1 / global-state sync | tmux session name of the sidebar's own client; drives `is_current` on each row |
 | `activity.scroll` | On user input / render | Activity log scroll position |
 | `activity.entries` | Every 1s | Focused pane's activity entries (max 50) |
 | `activity.max_entries` | Once at startup | Max activity log entries to display |
@@ -93,7 +89,7 @@ Per-pane file-based state:
 | `bottom_tab` | On user input / auto-switch | Current bottom panel tab |
 | `theme` | Once at startup | Color theme from tmux `@sidebar_color_*` variables |
 | `popup` | On user input / render | `PopupState` enum: `None` / `Repo { selected, area }` / `Notices { area }`. Enforces "at most one popup open" via the type system |
-| `layout` | Every frame (render) | `FrameLayout` sub-struct bundling the ephemeral fields the UI rewrites every frame for click hit-testing: `session_row_targets`, `pane_row_targets`, `line_to_row`, `repo_button_col`, `repo_spawn_targets`, `spawn_remove_targets`, `hyperlink_overlays` |
+| `layout` | Every frame (render) | `FrameLayout` sub-struct bundling the ephemeral fields the UI rewrites every frame for click hit-testing: `pane_row_targets`, `line_to_row`, `repo_button_col`, `repo_spawn_targets`, `spawn_remove_targets`, `hyperlink_overlays` |
 | `notices` | Once at startup / on copy | `NoticesState` sub-struct: `button_col`, `missing_hook_groups`, `claude_plugin_status`, `claude_settings_has_residual_hooks`, `claude_plugin_notice`, `copy_targets`, `copied_at` |
 | `timers` | Refresh cycle / on user input | `RefreshTimers` sub-struct gating periodic work: `last_filter_click` (debounce), `last_port_refresh`, `port_scan_initialized` |
 | `pending_osc52_copy` | On successful copy / frame flush | OSC 52 clipboard payload queued for terminal forwarding |
@@ -118,8 +114,7 @@ Per-pane file-based state:
 Vertical split computed in `ui::draw()` each frame:
 
 ```
-┌ Sessions ──────────────────────┐  ← 0..N rows (config / auto)
-├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┤  ← 1 row dotted divider (hidden with panel)
+┌────────────────────────────────┐
 │ Filter bar + agent list        │  ← Min(1)
 │ …                              │
 ├ pet band (optional) ───────────┤
@@ -127,12 +122,8 @@ Vertical split computed in `ui::draw()` each frame:
 └────────────────────────────────┘
 ```
 
-Constraints:
-
-- **Sessions visible** (2+ non-excluded tmux sessions with agents, and `@sidebar_sessions_height` ≠ `0`): `[sessions_h, divider_h=1, agents Min(1), pet?, bottom?]`
-- **Sessions hidden** (≤1 session or `@sidebar_sessions_height 0`): `[agents Min(1), pet?, bottom?]`
-
-`sessions.total_band_height()` returns `effective_content_height + 1` (divider) when visible, else `0`. Mouse clicks and scroll events in the top band route to the sessions panel before the agent list or bottom panel.
+Constraints: `[agents Min(1), pet?, bottom?]`. Mouse clicks and scroll
+events route to the agent list unless they land in the bottom panel band.
 
 ---
 
@@ -145,17 +136,17 @@ Constraints:
 ├─────────────────────────────────────────────────────────────┤
 │  Every 1s (refresh cycle)                                   │
 │  repo_groups, focus_state.focused_pane_id,                  │
-│  sessions.rows, layout.pane_row_targets, activity.entries,  │
+│  layout.pane_row_targets, activity.entries,                 │
 │  pane_states.map[..].task_progress                          │
 ├─────────────────────────────────────────────────────────────┤
 │  Every 10s (port scan, background)                          │
 │  pane_states.map[..].ports, agent liveness cleanup          │
 ├─────────────────────────────────────────────────────────────┤
 │  Every 10s (session_names background thread)                │
-│  sessions.names map populated by session_poll_loop          │
+│  session_names.names populated by session_poll_loop         │
 ├─────────────────────────────────────────────────────────────┤
 │  Once at startup                                             │
-│  theme, bottom_panel_height, sessions.height_mode,          │
+│  theme, bottom_panel_height,                                │
 │  notices.claude_plugin_*,                                   │
 │  notices.claude_settings_has_residual_hooks,                │
 │  notices.claude_plugin_notice, notices.missing_hook_groups  │
@@ -165,21 +156,20 @@ Constraints:
 ├─────────────────────────────────────────────────────────────┤
 │  On SIGUSR1 (tmux focus change)                             │
 │  GlobalState reloaded from tmux variables;                  │
-│  sessions.current_tmux_session refreshed, sessions.rows   │
-│  re-derived                                                 │
+│  focused pane re-resolved                                   │
 ├─────────────────────────────────────────────────────────────┤
 │  Event-driven (agent hooks)                                 │
 │  @pane_* tmux options, activity log files                   │
 ├─────────────────────────────────────────────────────────────┤
 │  On user input                                              │
-│  focus_state.focus, scrolls.*, sessions.scroll,             │
+│  focus_state.focus, scrolls.*,                              │
 │  activity.scroll, bottom_tab,                               │
 │  GlobalState fields, popup (PopupState enum),               │
 │  timers.last_filter_click,                                  │
 │  immediate selection / active-pane redraw                   │
 ├─────────────────────────────────────────────────────────────┤
 │  Every frame (render)                                       │
-│  layout.session_row_targets, layout.line_to_row,            │
+│  layout.line_to_row,                                        │
 │  popup.area (Repo/Notices variants),                        │
 │  notices.button_col, notices.copy_targets,                  │
 │  layout.hyperlink_overlays                                  │
@@ -324,29 +314,7 @@ struct SessionNamesState {
 /// Frame-scoped render output cached for click hit-testing. Rewritten
 /// every frame by the UI layer; consumed by mouse/keyboard handlers
 /// before the next render.
-struct SessionRowTarget {
-    rect: Rect,
-    tmux_session: String,
-}
-
-struct SessionRow {
-    tmux_session: String,
-    agent_count: usize,
-    has_attention: bool,
-    is_current: bool,
-}
-
-enum SessionsPanelHeight { Hidden, Auto, Fixed(u16) }
-
-struct SessionsPanelState {
-    rows: Vec<SessionRow>,
-    scroll: ScrollState,
-    height_mode: SessionsPanelHeight,
-    current_tmux_session: String,
-}
-
 struct FrameLayout {
-    session_row_targets: Vec<SessionRowTarget>,
     pane_row_targets: Vec<RowTarget>,
     line_to_row: Vec<Option<usize>>,
     repo_button_col: Option<u16>,

@@ -51,14 +51,6 @@ impl AppState {
         self.now = crate::time::now_epoch_secs();
     }
 
-    /// Re-read the tmux session hosting this sidebar pane. Called at startup
-    /// and on SIGUSR1 / global-state sync so session-row `is_current` stays
-    /// accurate after the user switches tmux sessions.
-    pub(crate) fn refresh_current_tmux_session(&mut self) {
-        self.sessions.current_tmux_session =
-            tmux::display_message(&self.tmux_pane, "#{session_name}");
-    }
-
     pub(crate) fn apply_session_snapshot(
         &mut self,
         sidebar_focused: bool,
@@ -93,7 +85,6 @@ impl AppState {
         {
             self.session_names.dirty = true;
         }
-        self.sessions.refresh_rows(&self.repo_groups);
         self.prune_pane_states_to_current_panes();
         self.rebuild_row_targets();
         self.find_focused_pane();

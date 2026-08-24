@@ -4,7 +4,6 @@ pub mod icons;
 pub mod notices;
 pub mod panes;
 pub mod pet;
-pub mod sessions;
 pub mod text;
 
 use std::collections::HashMap;
@@ -36,13 +35,6 @@ pub fn bottom_panel_height_from_options(opts: &HashMap<String, String>) -> u16 {
 pub fn bottom_panel_height_from_tmux() -> u16 {
     let opts = tmux::get_all_global_options();
     bottom_panel_height_from_options(&opts)
-}
-
-/// Read `@sidebar_sessions_height` from tmux global options.
-pub fn sessions_panel_height_from_options(
-    opts: &HashMap<String, String>,
-) -> crate::state::SessionsPanelHeight {
-    crate::state::sessions_panel_height_from_options(opts)
 }
 
 /// Read `@sidebar_pet` from tmux global options, defaulting to `false` (off).
@@ -144,7 +136,6 @@ pub fn apply_sidebar_ui_options(state: &mut AppState, opts: &HashMap<String, Str
 
 pub fn draw(frame: &mut Frame, state: &mut AppState) {
     state.layout.hyperlink_overlays.clear();
-    state.layout.session_row_targets.clear();
     let area = frame.area();
 
     let bot_h = state.bottom_panel_height;
@@ -158,17 +149,7 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
         0
     };
 
-    let band_h = state
-        .sessions
-        .total_band_height(area.height, bot_h, pet_band_h);
-    let sessions_content_h = band_h.saturating_sub(1);
-
-    let mut constraints = Vec::new();
-    if band_h > 0 {
-        constraints.push(Constraint::Length(sessions_content_h));
-        constraints.push(Constraint::Length(1));
-    }
-    constraints.push(Constraint::Min(1));
+    let mut constraints = vec![Constraint::Min(1)];
     if bot_h > 0 {
         constraints.push(Constraint::Length(pet_band_h));
         constraints.push(Constraint::Length(bot_h));
@@ -179,24 +160,15 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
         .constraints(constraints)
         .split(area);
 
-    let mut idx = 0usize;
-    if band_h > 0 {
-        sessions::draw_sessions_panel(frame, state, chunks[idx]);
-        idx += 1;
-        sessions::draw_sessions_divider(frame, state, chunks[idx]);
-        idx += 1;
-    }
+    state.layout.agents_area_y = chunks[0].y;
+    panes::draw_agents(frame, state, chunks[0]);
 
-    state.layout.agents_area_y = chunks[idx].y;
-    panes::draw_agents(frame, state, chunks[idx]);
-    idx += 1;
-
-    if bot_h > 0 && chunks.len() > idx {
+    if bot_h > 0 && chunks.len() > 2 {
         if state.pet_enabled {
             let running_count = state.running_count();
-            pet::draw_pet(frame, state, chunks[idx], running_count);
+            pet::draw_pet(frame, state, chunks[1], running_count);
         }
-        bottom::draw_bottom(frame, state, chunks[idx + 1]);
+        bottom::draw_bottom(frame, state, chunks[2]);
     }
 }
 

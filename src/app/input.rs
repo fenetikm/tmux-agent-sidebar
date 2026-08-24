@@ -23,26 +23,10 @@ pub(super) fn handle_event(
         Event::Mouse(mouse) => {
             let term_height = terminal.size().map(|s| s.height).unwrap_or(0);
             let bottom_h = state.bottom_panel_height;
-            let pet_h = if bottom_h > 0 {
-                if state.pet_enabled {
-                    crate::ui::PET_SCENE_HEIGHT
-                } else {
-                    1
-                }
-            } else {
-                0
-            };
-            let band_h = state
-                .sessions
-                .total_band_height(term_height, bottom_h, pet_h);
             match mouse.kind {
                 MouseEventKind::Down(MouseButton::Left) => {
                     let bottom_start = term_height.saturating_sub(bottom_h);
-                    if mouse.row < band_h {
-                        if mouse.row < band_h.saturating_sub(1) {
-                            state.handle_session_row_click(mouse.row, mouse.column);
-                        }
-                    } else if mouse.row < bottom_start {
+                    if mouse.row < bottom_start {
                         state.handle_mouse_click(mouse.row, mouse.column);
                     } else if mouse.row == bottom_start {
                         state.handle_bottom_tab_click(mouse.column);
@@ -236,7 +220,7 @@ fn repo_popup_nav_up(state: &mut AppState) {
 mod tests {
     use super::*;
     use crate::group::{PaneGitInfo, RepoGroup};
-    use crate::state::{RowTarget, SessionsPanelHeight, StatusFilter};
+    use crate::state::{RowTarget, StatusFilter};
     use crate::tmux::{AgentType, PaneInfo, PaneStatus, PermissionMode, WorktreeMetadata};
     use crossterm::event::{Event, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
     use ratatui::{Terminal, backend::CrosstermBackend};
@@ -276,11 +260,9 @@ mod tests {
         }
     }
 
-    fn state_with_sessions_band_and_repo_popup() -> AppState {
+    fn state_with_repo_popup() -> AppState {
         let mut state = AppState::new("%99".into());
         state.bottom_panel_height = 0;
-        state.sessions.current_tmux_session = "main".into();
-        state.sessions.height_mode = SessionsPanelHeight::Fixed(3);
         state.repo_groups = vec![RepoGroup {
             name: "project".into(),
             has_focus: false,
@@ -291,7 +273,6 @@ mod tests {
                 (pane_with_session("%4", "feat"), PaneGitInfo::default()),
             ],
         }];
-        state.sessions.refresh_rows(&state.repo_groups);
         state.rebuild_row_targets();
         state.toggle_repo_popup();
         state
@@ -470,29 +451,18 @@ mod tests {
     }
 
     #[test]
-    fn handle_event_agent_panel_click_with_sessions_band_keeps_popup_open() {
+    fn handle_event_agent_panel_click_inside_repo_popup_keeps_popup_open() {
         let mut terminal = terminal_28x18();
-        let mut state = state_with_sessions_band_and_repo_popup();
+        let mut state = state_with_repo_popup();
         terminal
             .draw(|frame| crate::ui::draw(frame, &mut state))
             .unwrap();
-
-        let band_h = state.sessions.total_band_height(18, 0, 0);
-        assert!(band_h > 0, "sessions band must be visible");
-        assert_eq!(
-            state.layout.agents_area_y, band_h,
-            "draw must record the agents panel origin for hit-testing"
-        );
 
         let area = state
             .repo_popup_area()
             .expect("render must populate repo popup area");
         let click_row = area.y;
         let click_col = area.x + 1;
-        assert!(
-            click_row >= band_h,
-            "popup must live in the agent band below the sessions panel"
-        );
 
         let flag = AtomicBool::new(false);
         handle_event(
@@ -509,7 +479,7 @@ mod tests {
 
         assert!(
             state.is_repo_popup_open(),
-            "click inside the repo popup must not close it when the sessions band is visible"
+            "click inside the repo popup must not close it"
         );
     }
 }

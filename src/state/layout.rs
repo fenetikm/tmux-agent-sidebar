@@ -24,13 +24,6 @@ pub struct SpawnRemoveTarget {
     pub pane_id: String,
 }
 
-/// Click target for a row in the sessions panel at the top of the sidebar.
-#[derive(Debug, Clone)]
-pub struct SessionRowTarget {
-    pub rect: ratatui::layout::Rect,
-    pub tmux_session: String,
-}
-
 /// Screen-positioned hyperlink overlay for OSC 8 terminal hyperlinks.
 #[derive(Debug, Clone)]
 pub struct HyperlinkOverlay {
@@ -65,8 +58,6 @@ pub struct FrameLayout {
     /// Click regions for the red `×` remove marker rendered next to the
     /// branch of each sidebar-spawned pane. One entry per visible row.
     pub spawn_remove_targets: Vec<SpawnRemoveTarget>,
-    /// Click regions for visible session rows in the top sessions panel.
-    pub session_row_targets: Vec<SessionRowTarget>,
     /// OSC 8 hyperlink overlays the main loop writes after each frame so
     /// terminals can recognise PR numbers as clickable links.
     pub hyperlink_overlays: Vec<HyperlinkOverlay>,
@@ -78,22 +69,6 @@ pub struct FrameLayout {
 
 pub(super) fn point_in_rect(row: u16, col: u16, rect: ratatui::layout::Rect) -> bool {
     rect.contains(ratatui::layout::Position { x: col, y: row })
-}
-
-/// Resolve a sessions-panel click to a tmux session name, or `None` for
-/// misses and current-session no-ops.
-pub fn resolve_session_row_click<'a>(
-    row: u16,
-    col: u16,
-    targets: &'a [SessionRowTarget],
-    current_session: &str,
-) -> Option<&'a str> {
-    let target = targets.iter().find(|t| point_in_rect(row, col, t.rect))?;
-    if target.tmux_session == current_session {
-        None
-    } else {
-        Some(&target.tmux_session)
-    }
 }
 
 impl AppState {
@@ -151,19 +126,7 @@ impl AppState {
         self.rebuild_row_targets();
     }
 
-    fn pet_band_height(&self, bottom_panel_height: u16) -> u16 {
-        if bottom_panel_height > 0 {
-            if self.pet_enabled {
-                crate::ui::PET_SCENE_HEIGHT
-            } else {
-                1
-            }
-        } else {
-            0
-        }
-    }
-
-    /// Handle mouse scroll event, routing to sessions, agents, or bottom panel by Y position.
+    /// Handle mouse scroll event, routing to agents or bottom panel by Y position.
     pub fn handle_mouse_scroll(
         &mut self,
         row: u16,
@@ -171,31 +134,11 @@ impl AppState {
         bottom_panel_height: u16,
         delta: isize,
     ) {
-        let pet_h = self.pet_band_height(bottom_panel_height);
-        let band_h = self
-            .sessions
-            .total_band_height(term_height, bottom_panel_height, pet_h);
-        if row < band_h {
-            self.sessions.scroll_by(delta);
-            return;
-        }
         let bottom_start = term_height.saturating_sub(bottom_panel_height);
         if row >= bottom_start {
             self.scroll_bottom(delta);
         } else {
             self.scrolls.panes.scroll(delta);
-        }
-    }
-
-    /// Switch tmux session when a non-current sessions-panel row is clicked.
-    pub fn handle_session_row_click(&mut self, row: u16, col: u16) {
-        if let Some(name) = resolve_session_row_click(
-            row,
-            col,
-            &self.layout.session_row_targets,
-            &self.sessions.current_tmux_session,
-        ) {
-            crate::tmux::switch_to_session(name);
         }
     }
 
@@ -378,39 +321,6 @@ impl AppState {
 mod tests {
     use super::*;
     use ratatui::layout::Rect;
-
-    fn target(session: &str, y: u16) -> SessionRowTarget {
-        SessionRowTarget {
-            rect: Rect {
-                x: 0,
-                y,
-                width: 28,
-                height: 1,
-            },
-            tmux_session: session.into(),
-        }
-    }
-
-    #[test]
-    fn resolve_session_row_click_returns_non_current_session() {
-        let targets = vec![target("main", 0), target("work", 1)];
-        assert_eq!(
-            resolve_session_row_click(1, 5, &targets, "main"),
-            Some("work")
-        );
-    }
-
-    #[test]
-    fn resolve_session_row_click_no_op_for_current_session() {
-        let targets = vec![target("main", 0), target("work", 1)];
-        assert_eq!(resolve_session_row_click(0, 5, &targets, "main"), None);
-    }
-
-    #[test]
-    fn resolve_session_row_click_no_op_for_miss() {
-        let targets = vec![target("main", 0)];
-        assert_eq!(resolve_session_row_click(5, 5, &targets, "main"), None);
-    }
 
     #[test]
     fn mouse_click_inside_repo_popup_with_nonzero_agents_area_y_does_not_close() {

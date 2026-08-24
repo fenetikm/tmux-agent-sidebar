@@ -1,6 +1,6 @@
 use crate::cli::plugin_state;
 use crate::session;
-use crate::state::{AppState, sessions_panel_height_from_options};
+use crate::state::AppState;
 use crate::tmux;
 use crate::ui;
 
@@ -20,9 +20,6 @@ pub(super) fn init_state(tmux_pane: String) -> AppState {
     state.hide_filter_bar = ui::hide_filter_bar_from_tmux();
     state.hide_repo_filter = ui::hide_repo_filter_from_tmux();
     state.global.apply_all(&opts);
-    state.sessions.height_mode = sessions_panel_height_from_options(&opts);
-    state.sessions.current_tmux_session =
-        tmux::display_message(&state.tmux_pane, "#{session_name}");
     state.refresh();
 
     super::render::refresh_git_for_focused_pane(&mut state);

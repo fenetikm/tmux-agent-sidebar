@@ -15,7 +15,6 @@ mod popup;
 mod refresh;
 mod scroll;
 mod session;
-mod sessions;
 mod tab;
 mod timers;
 
@@ -23,10 +22,7 @@ pub use activity::ActivityState;
 pub use filter::{RepoFilter, StatusFilter};
 pub use focus::{Focus, FocusState};
 pub use global::GlobalState;
-pub use layout::{
-    FrameLayout, HyperlinkOverlay, RepoSpawnTarget, RowTarget, SessionRowTarget, SpawnRemoveTarget,
-    resolve_session_row_click,
-};
+pub use layout::{FrameLayout, HyperlinkOverlay, RepoSpawnTarget, RowTarget, SpawnRemoveTarget};
 pub(crate) use notices::debug_forced_display;
 pub use notices::{ClaudePluginNotice, NoticesCopyTarget, NoticesMissingHookGroup, NoticesState};
 pub use pane_runtime::{PaneRuntimeMap, PaneRuntimeState};
@@ -35,9 +31,6 @@ pub use popup::{PopupState, SpawnField};
 pub(crate) use refresh::{TaskProgressDecision, classify_task_progress};
 pub use scroll::{ScrollState, ScrollStates};
 pub use session::SessionNamesState;
-pub use sessions::{
-    SessionRow, SessionsPanelHeight, SessionsPanelState, sessions_panel_height_from_options,
-};
 pub use timers::RefreshTimers;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -142,8 +135,6 @@ pub struct AppState {
     /// pane each tick when the map is unchanged (the polling thread only
     /// updates it every 10s).
     pub session_names: SessionNamesState,
-    /// tmux session switcher panel at the top of the sidebar.
-    pub sessions: SessionsPanelState,
     /// Whether the pet animation is drawn and ticked. Loaded once at startup
     /// from the `@sidebar_pet` tmux option. Defaults to `false`.
     pub pet_enabled: bool,
@@ -208,7 +199,6 @@ impl AppState {
             global: GlobalState::new(),
             bottom_panel_height: crate::ui::BOTTOM_PANEL_HEIGHT,
             session_names: SessionNamesState::new(),
-            sessions: SessionsPanelState::default(),
             pet_enabled: false,
             show_session_names: true,
             compact_rows: false,

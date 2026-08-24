@@ -87,7 +87,6 @@ pub fn run(
 
         let sigusr1 = needs_refresh.swap(false, Ordering::Relaxed);
         if sigusr1 {
-            state.refresh_current_tmux_session();
             let (focus_changed, is_window_active) = state.refresh_focus_fast();
             if focus_changed {
                 git_poll_now.store(true, Ordering::Relaxed);
@@ -117,8 +116,6 @@ pub fn run(
                 if window_inactive_count >= 2 {
                     state.global.load_from_tmux();
                     state.sync_sidebar_layout_options();
-                    state.refresh_current_tmux_session();
-                    state.sessions.refresh_rows(&state.repo_groups);
                     state.rebuild_row_targets();
                 }
                 window_inactive_count = 0;
