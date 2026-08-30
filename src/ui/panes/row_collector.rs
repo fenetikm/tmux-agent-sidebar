@@ -12,7 +12,7 @@ use crate::ui::text::display_width;
 pub(super) struct CollectedRows {
     pub lines: Vec<Line<'static>>,
     pub line_to_row: Vec<Option<usize>>,
-    pub pending_spawn: Vec<(usize, String, String)>,
+    pub pending_spawn: Vec<(usize, String, String, Option<String>)>,
     pub pending_remove: Vec<(usize, u16, String)>,
 }
 
@@ -106,9 +106,12 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
             let pad_width = width
                 .saturating_sub(title_w)
                 .saturating_sub(SPAWN_BUTTON.len());
-            collected
-                .pending_spawn
-                .push((collected.lines.len(), group.name.clone(), root.clone()));
+            collected.pending_spawn.push((
+                collected.lines.len(),
+                group.name.clone(),
+                root.clone(),
+                group.session.clone(),
+            ));
             let button_color = if group_has_focused_pane {
                 theme.accent
             } else {

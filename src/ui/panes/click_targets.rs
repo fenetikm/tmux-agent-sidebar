@@ -5,7 +5,7 @@ use crate::state::{AppState, RepoSpawnTarget, SpawnRemoveTarget};
 
 pub(super) fn materialize(
     state: &mut AppState,
-    pending_spawn: Vec<(usize, String, String)>,
+    pending_spawn: Vec<(usize, String, String, Option<String>)>,
     pending_remove: Vec<(usize, u16, String)>,
     scroll_offset: usize,
     list_area: Rect,
@@ -13,7 +13,7 @@ pub(super) fn materialize(
     let btn_width = SPAWN_BUTTON.len() as u16;
     state.layout.repo_spawn_targets = pending_spawn
         .into_iter()
-        .filter_map(|(line_idx, repo_name, repo_root)| {
+        .filter_map(|(line_idx, repo_name, repo_root, session)| {
             if line_idx < scroll_offset {
                 return None;
             }
@@ -27,6 +27,7 @@ pub(super) fn materialize(
                 rect: Rect::new(btn_x, btn_y, btn_width, 1),
                 repo_name,
                 repo_root,
+                session,
             })
         })
         .collect();
@@ -80,7 +81,7 @@ mod tests {
 
         materialize(
             &mut state,
-            vec![(0, "repo".into(), "/tmp/repo".into())],
+            vec![(0, "repo".into(), "/tmp/repo".into(), None)],
             Vec::new(),
             0,
             list_area,
@@ -133,8 +134,8 @@ mod tests {
         materialize(
             &mut state,
             vec![
-                (0, "above".into(), "/repo/above".into()),
-                (5, "visible".into(), "/repo/visible".into()),
+                (0, "above".into(), "/repo/above".into(), None),
+                (5, "visible".into(), "/repo/visible".into(), None),
             ],
             vec![(0, 20, "%above".into()), (5, 20, "%visible".into())],
             3,
@@ -156,8 +157,8 @@ mod tests {
         materialize(
             &mut state,
             vec![
-                (0, "inside".into(), "/repo/inside".into()),
-                (15, "outside".into(), "/repo/outside".into()),
+                (0, "inside".into(), "/repo/inside".into(), None),
+                (15, "outside".into(), "/repo/outside".into(), None),
             ],
             vec![(0, 20, "%inside".into()), (15, 20, "%outside".into())],
             0,
@@ -178,6 +179,7 @@ mod tests {
             rect: Rect::new(0, 0, 1, 1),
             repo_name: "stale".into(),
             repo_root: "/stale".into(),
+            session: None,
         }];
         state.layout.spawn_remove_targets = vec![SpawnRemoveTarget {
             rect: Rect::new(0, 0, 1, 1),

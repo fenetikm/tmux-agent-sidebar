@@ -13,6 +13,10 @@ pub struct RepoSpawnTarget {
     pub rect: ratatui::layout::Rect,
     pub repo_name: String,
     pub repo_root: String,
+    /// Session the target's group belongs to, so the keyboard spawn flow can
+    /// anchor under the right header when one repo appears under two sessions.
+    /// `None` in repository grouping.
+    pub session: Option<String>,
 }
 
 /// Click target for the red `×` rendered next to the branch of a

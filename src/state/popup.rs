@@ -249,13 +249,15 @@ impl AppState {
             return;
         };
         let name = group.name.clone();
+        let session = group.session.clone();
         // Anchor the popup directly below the repo header row so it
-        // matches what the mouse `+` click flow does.
+        // matches what the mouse `+` click flow does. With one repo under
+        // two sessions, the name alone is ambiguous — match the pair.
         let anchor = self
             .layout
             .repo_spawn_targets
             .iter()
-            .find(|t| t.repo_name == name)
+            .find(|t| t.repo_name == name && t.session == session)
             .map(|t| t.rect.y);
         self.open_spawn_input_for_repo(name, root, anchor);
     }
@@ -472,7 +474,7 @@ impl AppState {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{NoticesCopyTarget, RepoFilter};
+    use super::super::{NoticesCopyTarget, RepoFilter, RepoSpawnTarget};
     use super::*;
     use crate::group::{PaneGitInfo, RepoGroup};
     use crate::tmux::{AgentType, PaneInfo, PaneStatus, PermissionMode, WorktreeMetadata};
@@ -707,6 +709,58 @@ mod tests {
             assert!(area.is_none());
         } else {
             panic!("expected SpawnInput, got {:?}", state.popup);
+        }
+    }
+
+    #[test]
+    fn spawn_anchor_resolves_to_the_target_in_the_selected_panes_session() {
+        let mut state = AppState::new("%99".into());
+        let git = PaneGitInfo {
+            repo_root: Some("/tmp/repo".into()),
+            branch: None,
+            is_worktree: false,
+            worktree_name: None,
+        };
+        let group = |session: &str, pane_id: &str| RepoGroup {
+            name: "repo".into(),
+            session: Some(session.into()),
+            has_focus: false,
+            panes: vec![(test_pane(pane_id), git.clone())],
+        };
+        state.repo_groups = vec![group("work", "%1"), group("personal", "%2")];
+        state.rebuild_row_targets();
+        state.layout.repo_spawn_targets = vec![
+            RepoSpawnTarget {
+                rect: ratatui::layout::Rect::new(0, 1, 3, 1),
+                repo_name: "repo".into(),
+                repo_root: "/tmp/repo".into(),
+                session: Some("work".into()),
+            },
+            RepoSpawnTarget {
+                rect: ratatui::layout::Rect::new(0, 5, 3, 1),
+                repo_name: "repo".into(),
+                repo_root: "/tmp/repo".into(),
+                session: Some("personal".into()),
+            },
+        ];
+        // Select the row backed by %2, which lives in the "personal" group.
+        let row = state
+            .layout
+            .pane_row_targets
+            .iter()
+            .position(|t| t.pane_id == "%2")
+            .expect("%2 is visible");
+        state.global.selected_pane_row = row;
+
+        state.open_spawn_input_from_selection();
+
+        match &state.popup {
+            PopupState::SpawnInput { anchor_y, .. } => assert_eq!(
+                *anchor_y,
+                Some(5),
+                "the anchor must be the header of the pane's own session"
+            ),
+            other => panic!("expected the spawn input popup, got {other:?}"),
         }
     }
 

@@ -127,11 +127,15 @@ impl AppState {
         (all, running, background, waiting, idle, error)
     }
 
-    /// Return list of repo names for the popup: ["All", repo1, repo2, ...]
+    /// Return list of repo names for the popup: ["All", repo1, repo2, ...].
+    /// Deduped while preserving first-seen order: in session grouping the
+    /// same repo appears once per session, and the dropdown must list it once.
     pub fn repo_names(&self) -> Vec<String> {
         let mut names = vec!["All".to_string()];
         for group in &self.repo_groups {
-            names.push(group.name.clone());
+            if !names[1..].contains(&group.name) {
+                names.push(group.name.clone());
+            }
         }
         names
     }
@@ -342,5 +346,31 @@ mod tests {
             },
         ];
         assert_eq!(state.repo_names(), vec!["All", "alpha", "beta"]);
+    }
+
+    #[test]
+    fn repo_names_dedupes_a_repo_that_appears_under_several_sessions() {
+        let mut state = AppState::new("%0".into());
+        state.repo_groups = vec![
+            RepoGroup {
+                name: "my-app".into(),
+                session: Some("work".into()),
+                has_focus: false,
+                panes: vec![],
+            },
+            RepoGroup {
+                name: "my-app".into(),
+                session: Some("personal".into()),
+                has_focus: false,
+                panes: vec![],
+            },
+            RepoGroup {
+                name: "other".into(),
+                session: Some("personal".into()),
+                has_focus: false,
+                panes: vec![],
+            },
+        ];
+        assert_eq!(state.repo_names(), vec!["All", "my-app", "other"]);
     }
 }
