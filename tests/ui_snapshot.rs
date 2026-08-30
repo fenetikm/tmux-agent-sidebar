@@ -2467,3 +2467,37 @@ fn snapshot_background_long_command_truncates_with_ellipsis() {
     ╰──────────────────────────╯
     ");
 }
+
+#[test]
+fn snapshot_session_grouped_agent_list() {
+    let mut work_pane = make_pane(AgentType::Claude, PaneStatus::Idle);
+    work_pane.tmux_session = "work".into();
+    let mut personal_pane = make_pane(AgentType::Codex, PaneStatus::Idle);
+    personal_pane.pane_id = "%2".into();
+    personal_pane.tmux_session = "personal".into();
+
+    let mut state = make_state(vec![]);
+    state.repo_groups = vec![
+        make_repo_group_in_session("project", "personal", vec![personal_pane]),
+        make_repo_group_in_session("project", "work", vec![work_pane]),
+    ];
+    // The default bottom_panel_height (20) leaves only ~2 rows for the pane
+    // list at height 25, which auto-scrolls past both session blocks.
+    // Disable the bottom panel so the whole layout contract is visible.
+    state.bottom_panel_height = 0;
+    state.rebuild_row_targets();
+
+    let output = render_to_string(&mut state, 28, 25);
+    insta::assert_snapshot!(output, @"
+     ≡2  ●0  ◎0  ◐0  ○2  ✕0
+    ⓘ                        — ▾
+    [personal]
+    project
+      ○ codex
+        Waiting for prompt…
+    [work]
+    project
+    ┃ ○ claude
+    ┃   Waiting for prompt…
+    ");
+}

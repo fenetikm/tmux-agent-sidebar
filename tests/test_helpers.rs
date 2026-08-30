@@ -139,6 +139,16 @@ pub fn make_repo_group(name: &str, panes: Vec<PaneInfo>) -> tmux_agent_sidebar::
     }
 }
 
+pub fn make_repo_group_in_session(
+    name: &str,
+    session: &str,
+    panes: Vec<PaneInfo>,
+) -> tmux_agent_sidebar::group::RepoGroup {
+    let mut group = make_repo_group(name, panes);
+    group.session = Some(session.into());
+    group
+}
+
 /// Build a baseline `AppState` for UI/render tests.
 ///
 /// The `_sessions` argument is kept so the call sites can document the

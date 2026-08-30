@@ -23,6 +23,7 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
     let mut collected = CollectedRows::default();
     let filter = state.effective_status_filter();
     let mut first_group = true;
+    let mut prev_session: Option<String> = None;
     let mut row_index: usize = 0;
 
     for group in &state.repo_groups {
@@ -45,6 +46,40 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
             collected.line_to_row.push(None);
         }
         first_group = false;
+
+        // Session header in `SortMode::Session`: one `[name]` line above the
+        // first repo of each session block, after the blank separator so the
+        // blank reads as belonging to the session break. `None` (repository
+        // mode) and blank session names emit nothing — a bare `[]` line is
+        // worse than no line.
+        let session = group.session.as_deref().filter(|s| !s.is_empty());
+        if let Some(session_name) = session
+            && prev_session.as_deref() != Some(session_name)
+        {
+            let session_has_focused_pane =
+                state
+                    .focus_state
+                    .focused_pane_id
+                    .as_ref()
+                    .is_some_and(|fid| {
+                        state
+                            .repo_groups
+                            .iter()
+                            .filter(|g| g.session.as_deref() == Some(session_name))
+                            .any(|g| g.panes.iter().any(|(p, _)| p.pane_id == *fid))
+                    });
+            let session_color = if session_has_focused_pane {
+                theme.accent
+            } else {
+                theme.text_active
+            };
+            collected.lines.push(Line::from(Span::styled(
+                format!("[{session_name}]"),
+                Style::default().fg(session_color),
+            )));
+            collected.line_to_row.push(None);
+        }
+        prev_session = session.map(|s| s.to_string());
 
         let group_has_focused_pane = state
             .focus_state
@@ -346,6 +381,109 @@ mod tests {
         assert!(
             collected.pending_remove.is_empty(),
             "compact rows draw no × marker, so no click target may be registered"
+        );
+    }
+
+    /// Flatten collected lines to plain strings for structural assertions.
+    /// These are `collect()` outputs, not a rendered frame, so no snapshot
+    /// is required; `tests/ui_snapshot.rs` covers the rendered form.
+    fn line_texts(collected: &CollectedRows) -> Vec<String> {
+        collected
+            .lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect()
+    }
+
+    fn group_in_session(name: &str, session: Option<&str>, pane_id: &str) -> RepoGroup {
+        RepoGroup {
+            name: name.into(),
+            session: session.map(|s| s.to_string()),
+            has_focus: false,
+            panes: vec![(
+                make_pane(pane_id, PaneStatus::Running),
+                PaneGitInfo::default(),
+            )],
+        }
+    }
+
+    #[test]
+    fn collect_emits_one_session_header_per_session_block() {
+        let mut state = AppState::new("%0".into());
+        state.repo_groups = vec![
+            group_in_session("repo-a", Some("personal"), "%1"),
+            group_in_session("repo-a", Some("work"), "%2"),
+            group_in_session("repo-b", Some("work"), "%3"),
+        ];
+        let texts = line_texts(&collect(&state, 40));
+
+        assert_eq!(
+            texts.iter().filter(|t| t.as_str() == "[personal]").count(),
+            1
+        );
+        assert_eq!(texts.iter().filter(|t| t.as_str() == "[work]").count(), 1);
+        let personal = texts.iter().position(|t| t == "[personal]").unwrap();
+        let work = texts.iter().position(|t| t == "[work]").unwrap();
+        assert!(personal < work, "session headers follow group order");
+        assert_eq!(
+            texts[personal + 1],
+            "repo-a",
+            "the repo header follows its session header immediately"
+        );
+        assert_eq!(
+            texts[work - 1],
+            "",
+            "the blank separator sits above the session header"
+        );
+    }
+
+    #[test]
+    fn collect_emits_no_session_header_in_repository_mode() {
+        let mut state = AppState::new("%0".into());
+        state.repo_groups = vec![
+            group_in_session("repo-a", None, "%1"),
+            group_in_session("repo-b", None, "%2"),
+        ];
+        let texts = line_texts(&collect(&state, 40));
+
+        assert!(
+            !texts.iter().any(|t| t.starts_with('[')),
+            "groups with no session must render exactly as they do today: {texts:?}"
+        );
+    }
+
+    #[test]
+    fn collect_emits_no_session_header_for_a_blank_session_name() {
+        let mut state = AppState::new("%0".into());
+        state.repo_groups = vec![group_in_session("repo-a", Some(""), "%1")];
+        let texts = line_texts(&collect(&state, 40));
+
+        assert!(
+            !texts.iter().any(|t| t == "[]"),
+            "a bare [] line is worse than no line: {texts:?}"
+        );
+    }
+
+    #[test]
+    fn collect_maps_session_header_lines_to_no_row() {
+        let mut state = AppState::new("%0".into());
+        state.repo_groups = vec![group_in_session("repo-a", Some("work"), "%1")];
+        let collected = collect(&state, 40);
+        let idx = line_texts(&collected)
+            .iter()
+            .position(|t| t == "[work]")
+            .expect("session header rendered");
+
+        assert_eq!(
+            collected.line_to_row[idx], None,
+            "j/k must skip the session header and it must not be selectable"
         );
     }
 }
