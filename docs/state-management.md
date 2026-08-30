@@ -99,6 +99,7 @@ Per-pane file-based state:
 | `pet_bob_timer` | Every 200ms (animation) | Idle bob motion timer |
 | `pet_enabled` | Once at startup | Whether the pet is drawn and ticked (from `@sidebar_pet`) |
 | `compact_rows` | Once at startup, then on `c` | Whether agent entries render as two fixed lines (from `@sidebar_compact`, written back on toggle) |
+| `sort_mode` | Every layout-option sync | How the agent list is grouped: `SortMode::Repository` or `SortMode::Session` (from `@sidebar_sorting`, never written back) |
 | `spinner_frame` | Every 200ms (animation) | Spinner animation frame counter |
 | `icons` | Once at startup | `StatusIcons` theme (overridable via tmux options) |
 | `tmux_pane` | Once at startup | This sidebar's own tmux pane ID |
@@ -193,7 +194,7 @@ TUI main loop (app::run in app.rs; submodules app/{setup,workers,input,render})
                         ↓
   → refresh() every 1s
     → query_sessions() (tmux.rs)     ← reads @pane_* via `tmux list-panes -a`
-    → group_panes_by_repo() (group.rs)
+    → group_panes() (group.rs)
     → sessions.refresh_rows()        ← derives top-panel session rows from repo_groups
     → rebuild_row_targets()          ← applies GlobalState filters
     → refresh_activity_data()        ← reads /tmp activity logs
