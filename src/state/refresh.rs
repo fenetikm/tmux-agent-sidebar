@@ -72,7 +72,7 @@ impl AppState {
                     .map(|(p, _)| (p.pane_id.clone(), p.session_id.clone()))
             })
             .collect();
-        self.repo_groups = crate::group::group_panes_by_repo(&sessions);
+        self.repo_groups = crate::group::group_panes(&sessions, crate::group::SortMode::Repository);
         if !self.session_names.dirty
             && self
                 .repo_groups
@@ -862,6 +862,7 @@ mod tests {
         state.repo_groups = vec![crate::group::RepoGroup {
             name: "test".into(),
             has_focus: true,
+            session: None,
             panes: panes
                 .into_iter()
                 .map(|p| (p, crate::group::PaneGitInfo::default()))

@@ -13,11 +13,27 @@ pub struct PaneGitInfo {
     pub worktree_name: Option<String>,
 }
 
+/// How the agent list is grouped, from the `@sidebar_sorting` tmux option.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortMode {
+    /// One group per repository, spanning every tmux session. The default.
+    #[default]
+    Repository,
+    /// One group per (tmux session, repository) pair, so each session's
+    /// repos sit together under a session header.
+    Session,
+}
+
 /// A group of panes working in the same repository (or directory).
 #[derive(Debug, Clone)]
 pub struct RepoGroup {
     /// Display name: repo directory basename, or raw path for non-git
     pub name: String,
+    /// The tmux session this group belongs to, in `SortMode::Session`.
+    /// `None` in `SortMode::Repository`, where groups span sessions.
+    /// `None` (or empty) is what tells the renderer to emit no session
+    /// header, so both modes share one rendering path.
+    pub session: Option<String>,
     /// Whether any pane in the group belongs to the focused (active) window
     pub has_focus: bool,
     /// Panes in this group, with their git info
@@ -79,11 +95,20 @@ pub fn resolve_pane_git_info(path: &str) -> PaneGitInfo {
     }
 }
 
-/// Group all panes across all sessions by repo root.
-/// Returns groups sorted alphabetically by display name (case-insensitive),
-/// so the order is stable regardless of which pane is encountered first.
-pub fn group_panes_by_repo(sessions: &[crate::tmux::SessionInfo]) -> Vec<RepoGroup> {
-    let mut groups: IndexMap<String, RepoGroup> = IndexMap::new();
+/// Group all panes across all sessions.
+///
+/// In [`SortMode::Repository`] every pane of a repo lands in one group,
+/// whatever session it sits in. In [`SortMode::Session`] the same repo
+/// open in two sessions yields two groups, each listing only that
+/// session's panes.
+///
+/// Groups are returned sorted by `(session, display name)`,
+/// case-insensitively. In repository mode every session is `None`, so the
+/// key degenerates to the display name and the order is unchanged. The
+/// attached session is not pinned to the top: a block that moves when you
+/// switch sessions is harder to build a spatial memory of.
+pub fn group_panes(sessions: &[crate::tmux::SessionInfo], mode: SortMode) -> Vec<RepoGroup> {
+    let mut groups: IndexMap<(Option<String>, String), RepoGroup> = IndexMap::new();
     let mut git_cache: std::collections::HashMap<String, PaneGitInfo> =
         std::collections::HashMap::new();
 
@@ -114,24 +139,28 @@ pub fn group_panes_by_repo(sessions: &[crate::tmux::SessionInfo]) -> Vec<RepoGro
                     git_info.is_worktree = true;
                 }
 
-                let group_key = match &git_info.repo_root {
+                let repo_key = match &git_info.repo_root {
                     Some(root) => root.clone(),
                     None => pane.path.clone(),
                 };
 
-                let display_name = group_key
-                    .rsplit('/')
-                    .next()
-                    .unwrap_or(&group_key)
-                    .to_string();
+                let display_name = repo_key.rsplit('/').next().unwrap_or(&repo_key).to_string();
+
+                let session_key = match mode {
+                    SortMode::Repository => None,
+                    SortMode::Session => Some(pane.tmux_session.clone()),
+                };
 
                 let has_focus = window.window_active && pane.pane_active;
 
-                let group = groups.entry(group_key).or_insert_with(|| RepoGroup {
-                    name: display_name,
-                    has_focus: false,
-                    panes: Vec::new(),
-                });
+                let group = groups
+                    .entry((session_key.clone(), repo_key))
+                    .or_insert_with(|| RepoGroup {
+                        name: display_name,
+                        session: session_key,
+                        has_focus: false,
+                        panes: Vec::new(),
+                    });
 
                 if has_focus {
                     group.has_focus = true;
@@ -143,7 +172,12 @@ pub fn group_panes_by_repo(sessions: &[crate::tmux::SessionInfo]) -> Vec<RepoGro
     }
 
     let mut result: Vec<RepoGroup> = groups.into_values().collect();
-    result.sort_by_key(|group| group.name.to_lowercase());
+    result.sort_by_key(|group| {
+        (
+            group.session.as_deref().unwrap_or_default().to_lowercase(),
+            group.name.to_lowercase(),
+        )
+    });
     result
 }
 
@@ -238,7 +272,7 @@ mod tests {
         assert_eq!(result, std::path::PathBuf::from("/base/dir/relative"));
     }
 
-    // ─── group_panes_by_repo tests ──────────────────────────────────
+    // ─── group_panes tests ──────────────────────────────────────────
 
     fn test_pane(id: &str, path: &str) -> PaneInfo {
         PaneInfo {
@@ -266,6 +300,12 @@ mod tests {
         }
     }
 
+    fn test_pane_in_session(id: &str, path: &str, tmux_session: &str) -> PaneInfo {
+        let mut pane = test_pane(id, path);
+        pane.tmux_session = tmux_session.into();
+        pane
+    }
+
     fn test_window(panes: Vec<PaneInfo>, active: bool) -> crate::tmux::WindowInfo {
         crate::tmux::WindowInfo {
             window_id: "@0".into(),
@@ -285,7 +325,7 @@ mod tests {
 
     #[test]
     fn group_panes_empty_sessions() {
-        let groups = group_panes_by_repo(&[]);
+        let groups = group_panes(&[], SortMode::Repository);
         assert!(groups.is_empty());
     }
 
@@ -297,7 +337,7 @@ mod tests {
         let pane2 = test_pane("%2", manifest_dir);
 
         let sessions = vec![test_session(vec![test_window(vec![pane1, pane2], true)])];
-        let groups = group_panes_by_repo(&sessions);
+        let groups = group_panes(&sessions, SortMode::Repository);
 
         assert_eq!(groups.len(), 1, "same repo path should produce one group");
         assert_eq!(groups[0].panes.len(), 2);
@@ -311,7 +351,7 @@ mod tests {
         let pane = test_pane("%1", "/tmp/no-git-here");
 
         let sessions = vec![test_session(vec![test_window(vec![pane], true)])];
-        let groups = group_panes_by_repo(&sessions);
+        let groups = group_panes(&sessions, SortMode::Repository);
 
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].name, "no-git-here");
@@ -323,7 +363,7 @@ mod tests {
         let pane = test_pane("%1", manifest_dir);
 
         let sessions = vec![test_session(vec![test_window(vec![pane], true)])];
-        let groups = group_panes_by_repo(&sessions);
+        let groups = group_panes(&sessions, SortMode::Repository);
 
         assert_eq!(groups.len(), 1);
         let expected_name = std::path::Path::new(manifest_dir)
@@ -343,7 +383,7 @@ mod tests {
         pane.pane_active = true;
 
         let sessions = vec![test_session(vec![test_window(vec![pane], true)])];
-        let groups = group_panes_by_repo(&sessions);
+        let groups = group_panes(&sessions, SortMode::Repository);
 
         assert!(
             groups[0].has_focus,
@@ -358,7 +398,7 @@ mod tests {
         pane.pane_active = true;
 
         let sessions = vec![test_session(vec![test_window(vec![pane], false)])]; // window_active=false
-        let groups = group_panes_by_repo(&sessions);
+        let groups = group_panes(&sessions, SortMode::Repository);
 
         assert!(
             !groups[0].has_focus,
@@ -371,7 +411,7 @@ mod tests {
         let pane = test_pane("%1", "");
 
         let sessions = vec![test_session(vec![test_window(vec![pane], true)])];
-        let groups = group_panes_by_repo(&sessions);
+        let groups = group_panes(&sessions, SortMode::Repository);
 
         // Empty path pane should still be grouped (by empty key)
         assert_eq!(groups.len(), 1);
@@ -390,7 +430,7 @@ mod tests {
                 windows: vec![test_window(vec![pane2], false)],
             },
         ];
-        let groups = group_panes_by_repo(&sessions);
+        let groups = group_panes(&sessions, SortMode::Repository);
 
         assert_eq!(
             groups.len(),
@@ -405,6 +445,9 @@ mod tests {
         // live in different tmux sessions but share the same repo path
         // must still collapse into a single `RepoGroup`. This is what
         // makes the sidebar usable across multi-session workflows.
+        // `SortMode::Session` inverts this guarantee deliberately: see
+        // `group_panes_same_repo_across_sessions_splits_in_session_mode`
+        // below.
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         let pane_session_a = test_pane("%1", manifest_dir);
         let pane_session_b = test_pane("%2", manifest_dir);
@@ -419,7 +462,7 @@ mod tests {
                 windows: vec![test_window(vec![pane_session_b], false)],
             },
         ];
-        let groups = group_panes_by_repo(&sessions);
+        let groups = group_panes(&sessions, SortMode::Repository);
 
         assert_eq!(
             groups.len(),
@@ -437,6 +480,85 @@ mod tests {
     }
 
     #[test]
+    fn group_panes_same_repo_across_sessions_splits_in_session_mode() {
+        // The deliberate inversion of
+        // `group_panes_same_repo_across_sessions_merge_into_one_group`:
+        // in session mode a repo open in two sessions is two groups, each
+        // listing only that session's panes.
+        let pane_a = test_pane_in_session("%1", "/tmp/shared-repo", "alpha");
+        let pane_b = test_pane_in_session("%2", "/tmp/shared-repo", "beta");
+
+        let sessions = vec![
+            crate::tmux::SessionInfo {
+                session_name: "alpha".into(),
+                windows: vec![test_window(vec![pane_a], true)],
+            },
+            crate::tmux::SessionInfo {
+                session_name: "beta".into(),
+                windows: vec![test_window(vec![pane_b], false)],
+            },
+        ];
+        let groups = group_panes(&sessions, SortMode::Session);
+
+        assert_eq!(groups.len(), 2, "one group per session");
+        assert_eq!(groups[0].session.as_deref(), Some("alpha"));
+        assert_eq!(groups[0].name, "shared-repo");
+        assert_eq!(groups[0].panes.len(), 1);
+        assert_eq!(groups[0].panes[0].0.pane_id, "%1");
+        assert_eq!(groups[1].session.as_deref(), Some("beta"));
+        assert_eq!(groups[1].panes[0].0.pane_id, "%2");
+    }
+
+    #[test]
+    fn group_panes_repository_mode_leaves_session_unset() {
+        let pane = test_pane_in_session("%1", "/tmp/some-repo", "alpha");
+        let sessions = vec![test_session(vec![test_window(vec![pane], true)])];
+        let groups = group_panes(&sessions, SortMode::Repository);
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(
+            groups[0].session, None,
+            "repository groups span sessions, so they carry no session"
+        );
+    }
+
+    #[test]
+    fn group_panes_sorts_by_session_then_name_case_insensitively() {
+        let sessions = vec![test_session(vec![test_window(
+            vec![
+                test_pane_in_session("%1", "/tmp/zzz", "work"),
+                test_pane_in_session("%2", "/tmp/aaa", "work"),
+                test_pane_in_session("%3", "/tmp/mmm", "Personal"),
+            ],
+            true,
+        )])];
+        let groups = group_panes(&sessions, SortMode::Session);
+
+        let order: Vec<(&str, &str)> = groups
+            .iter()
+            .map(|g| (g.session.as_deref().unwrap_or(""), g.name.as_str()))
+            .collect();
+        assert_eq!(
+            order,
+            vec![("Personal", "mmm"), ("work", "aaa"), ("work", "zzz")]
+        );
+    }
+
+    #[test]
+    fn group_panes_blank_tmux_session_keeps_an_empty_session_key() {
+        // `tmux_session` is blank across many fixtures and can be blank in
+        // practice; grouping must not panic or drop the pane. The renderer
+        // is what suppresses the header for a blank name.
+        let pane = test_pane_in_session("%1", "/tmp/orphan", "");
+        let sessions = vec![test_session(vec![test_window(vec![pane], true)])];
+        let groups = group_panes(&sessions, SortMode::Session);
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].session.as_deref(), Some(""));
+        assert_eq!(groups[0].panes.len(), 1);
+    }
+
+    #[test]
     fn group_panes_sorted_by_name_case_insensitive() {
         // Groups should be sorted alphabetically regardless of encounter order
         let pane1 = test_pane("%1", "/tmp/zzz");
@@ -448,7 +570,7 @@ mod tests {
             vec![pane1, pane2, pane3, pane4],
             true,
         )])];
-        let groups = group_panes_by_repo(&sessions);
+        let groups = group_panes(&sessions, SortMode::Repository);
 
         assert_eq!(groups.len(), 3);
         assert_eq!(groups[0].name, "Aaa");
@@ -469,6 +591,7 @@ mod tests {
     ) -> RepoGroup {
         RepoGroup {
             name: name.into(),
+            session: None,
             has_focus: false,
             panes: pane_ids
                 .iter()

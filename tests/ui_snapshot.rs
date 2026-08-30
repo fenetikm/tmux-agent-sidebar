@@ -762,6 +762,7 @@ fn snapshot_worktree_branch_ui() {
     let mut state = make_state_with_groups(vec![tmux_agent_sidebar::group::RepoGroup {
         name: "project".into(),
         has_focus: true,
+        session: None,
         panes: vec![(pane, git_info)],
     }]);
 
@@ -790,6 +791,7 @@ fn snapshot_worktree_long_branch_truncated_ui() {
     let mut state = make_state_with_groups(vec![tmux_agent_sidebar::group::RepoGroup {
         name: "project".into(),
         has_focus: true,
+        session: None,
         panes: vec![(pane, git_info)],
     }]);
 
@@ -817,6 +819,7 @@ fn snapshot_long_branch_with_ports_ui() {
     let mut state = make_state_with_groups(vec![tmux_agent_sidebar::group::RepoGroup {
         name: "project".into(),
         has_focus: true,
+        session: None,
         panes: vec![(pane, git_info)],
     }]);
     state.set_pane_ports("%1", vec![3000, 5173]);
@@ -935,6 +938,7 @@ fn snapshot_all_elements_combined_ui() {
     let mut state = make_state_with_groups(vec![tmux_agent_sidebar::group::RepoGroup {
         name: "project".into(),
         has_focus: true,
+        session: None,
         panes: vec![(pane, git_info)],
     }]);
     state.set_pane_task_progress(
@@ -1119,6 +1123,7 @@ fn snapshot_response_with_branch_ui() {
     let mut state = make_state_with_groups(vec![tmux_agent_sidebar::group::RepoGroup {
         name: "project".into(),
         has_focus: true,
+        session: None,
         panes: vec![(pane, git_info)],
     }]);
 
@@ -1211,6 +1216,7 @@ fn snapshot_worktree_with_name_ui() {
     let mut state = make_state_with_groups(vec![tmux_agent_sidebar::group::RepoGroup {
         name: "project".into(),
         has_focus: true,
+        session: None,
         panes: vec![(pane, git_info)],
     }]);
 
@@ -1238,6 +1244,7 @@ fn snapshot_worktree_name_same_as_branch_ui() {
     let mut state = make_state_with_groups(vec![tmux_agent_sidebar::group::RepoGroup {
         name: "project".into(),
         has_focus: true,
+        session: None,
         panes: vec![(pane, git_info)],
     }]);
 
@@ -1806,6 +1813,7 @@ fn repo_group_with_root(name: &str, panes: Vec<PaneInfo>) -> RepoGroup {
     RepoGroup {
         name: name.into(),
         has_focus: true,
+        session: None,
         panes: panes
             .into_iter()
             .map(|p| {
@@ -2044,6 +2052,7 @@ fn snapshot_sidebar_spawned_pane_appends_trailing_remove_marker() {
     let group = RepoGroup {
         name: "proj".into(),
         has_focus: true,
+        session: None,
         panes: vec![
             (
                 manual,
@@ -2092,6 +2101,7 @@ fn snapshot_sidebar_spawned_pane_registers_click_target() {
     let group = RepoGroup {
         name: "proj".into(),
         has_focus: true,
+        session: None,
         panes: vec![(
             spawned,
             PaneGitInfo {
@@ -2128,6 +2138,7 @@ fn snapshot_sidebar_spawned_click_target_is_invariant_to_branch_length() {
     let make_group = |branch: &str| RepoGroup {
         name: "proj".into(),
         has_focus: true,
+        session: None,
         panes: vec![(
             {
                 let mut p = make_pane(AgentType::Claude, PaneStatus::Idle);
@@ -2165,6 +2176,7 @@ fn snapshot_non_spawned_pane_does_not_register_click_target() {
     let group = RepoGroup {
         name: "proj".into(),
         has_focus: true,
+        session: None,
         panes: vec![(
             pane,
             PaneGitInfo {
@@ -2195,6 +2207,7 @@ fn snapshot_sidebar_spawned_long_branch_truncates_and_keeps_x() {
     let group = RepoGroup {
         name: "proj".into(),
         has_focus: true,
+        session: None,
         panes: vec![(
             spawned,
             PaneGitInfo {
@@ -2237,6 +2250,7 @@ fn snapshot_sidebar_spawned_coexists_with_port_display() {
     let group = RepoGroup {
         name: "proj".into(),
         has_focus: true,
+        session: None,
         panes: vec![(
             spawned,
             PaneGitInfo {

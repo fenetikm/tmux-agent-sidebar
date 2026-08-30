@@ -1158,6 +1158,7 @@ fn snapshot_branch_truncated_ui() {
     state.repo_groups = vec![tmux_agent_sidebar::group::RepoGroup {
         name: "dotfiles".into(),
         has_focus: true,
+        session: None,
         panes: vec![(
             pane,
             tmux_agent_sidebar::group::PaneGitInfo {
@@ -1473,6 +1474,7 @@ fn snapshot_focused_group_active_border_styled() {
         tmux_agent_sidebar::group::RepoGroup {
             name: "dotfiles".into(),
             has_focus: true,
+            session: None,
             panes: vec![(
                 pane1.clone(),
                 tmux_agent_sidebar::group::PaneGitInfo::default(),
@@ -1481,6 +1483,7 @@ fn snapshot_focused_group_active_border_styled() {
         tmux_agent_sidebar::group::RepoGroup {
             name: "my-app".into(),
             has_focus: false,
+            session: None,
             panes: vec![(
                 pane2.clone(),
                 tmux_agent_sidebar::group::PaneGitInfo::default(),

@@ -263,6 +263,7 @@ fn test_rebuild_row_targets_clamps_selection() {
     state.repo_groups = vec![RepoGroup {
         name: "project".into(),
         has_focus: true,
+        session: None,
         panes: vec![
             (pane.clone(), PaneGitInfo::default()),
             (p2.clone(), PaneGitInfo::default()),

@@ -266,6 +266,7 @@ mod tests {
         state.repo_groups = vec![RepoGroup {
             name: "project".into(),
             has_focus: false,
+            session: None,
             panes: vec![
                 (pane_with_session("%1", "main"), PaneGitInfo::default()),
                 (pane_with_session("%2", "main"), PaneGitInfo::default()),
@@ -316,11 +317,13 @@ mod tests {
             RepoGroup {
                 name: "repo-a".into(),
                 has_focus: false,
+                session: None,
                 panes: vec![],
             },
             RepoGroup {
                 name: "repo-b".into(),
                 has_focus: false,
+                session: None,
                 panes: vec![],
             },
         ];

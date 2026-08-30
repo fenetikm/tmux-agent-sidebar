@@ -181,11 +181,13 @@ mod tests {
             RepoGroup {
                 name: "alpha".into(),
                 has_focus: true,
+                session: None,
                 panes: vec![(test_pane("%1"), PaneGitInfo::default())],
             },
             RepoGroup {
                 name: "beta".into(),
                 has_focus: false,
+                session: None,
                 panes: vec![(test_pane("%42"), PaneGitInfo::default())],
             },
         ];
@@ -201,6 +203,7 @@ mod tests {
         state.repo_groups = vec![RepoGroup {
             name: "alpha".into(),
             has_focus: true,
+            session: None,
             panes: vec![
                 (test_pane("%1"), PaneGitInfo::default()),
                 (test_pane("%2"), PaneGitInfo::default()),

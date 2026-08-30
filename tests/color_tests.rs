@@ -833,6 +833,7 @@ fn test_branch_color_in_agent_panel() {
     state.repo_groups = vec![tmux_agent_sidebar::group::RepoGroup {
         name: "project".into(),
         has_focus: true,
+        session: None,
         panes: vec![(
             pane,
             tmux_agent_sidebar::group::PaneGitInfo {
@@ -932,11 +933,13 @@ fn test_accent_vs_border_inactive_colors() {
         tmux_agent_sidebar::group::RepoGroup {
             name: "focused-repo".into(),
             has_focus: true,
+            session: None,
             panes: vec![(pane1, tmux_agent_sidebar::group::PaneGitInfo::default())],
         },
         tmux_agent_sidebar::group::RepoGroup {
             name: "unfocused-repo".into(),
             has_focus: false,
+            session: None,
             panes: vec![(pane2, tmux_agent_sidebar::group::PaneGitInfo::default())],
         },
     ];

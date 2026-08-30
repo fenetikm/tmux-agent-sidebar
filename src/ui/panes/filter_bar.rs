@@ -287,6 +287,7 @@ mod tests {
         let mut state = make_state_with_groups(vec![crate::group::RepoGroup {
             name: "project".into(),
             has_focus: true,
+            session: None,
             panes: vec![
                 (pane1, PaneGitInfo::default()),
                 (pane2, PaneGitInfo::default()),
@@ -390,6 +391,7 @@ mod tests {
         let mut state = make_state_with_groups(vec![crate::group::RepoGroup {
             name: "my-app".into(),
             has_focus: true,
+            session: None,
             panes: vec![],
         }]);
         state.global.repo_filter = RepoFilter::Repo("my-app".into());
@@ -419,6 +421,7 @@ mod tests {
         let mut state = make_state_with_groups(vec![crate::group::RepoGroup {
             name: "very-long-repository-name-that-exceeds-width".into(),
             has_focus: true,
+            session: None,
             panes: vec![],
         }]);
         state.global.repo_filter =

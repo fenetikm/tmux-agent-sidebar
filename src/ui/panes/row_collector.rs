@@ -208,6 +208,7 @@ mod tests {
         state.repo_groups = vec![RepoGroup {
             name: "repo".into(),
             has_focus: false,
+            session: None,
             panes: vec![(make_pane("%1", PaneStatus::Running), PaneGitInfo::default())],
         }];
         let collected = collect(&state, 40);
@@ -227,6 +228,7 @@ mod tests {
         state.repo_groups = vec![RepoGroup {
             name: "repo".into(),
             has_focus: false,
+            session: None,
             panes: vec![(make_pane("%1", PaneStatus::Running), git_info)],
         }];
         let collected = collect(&state, 40);
@@ -247,6 +249,7 @@ mod tests {
         state.repo_groups = vec![RepoGroup {
             name: "raw-path".into(),
             has_focus: false,
+            session: None,
             panes: vec![(make_pane("%1", PaneStatus::Running), PaneGitInfo::default())],
         }];
         let collected = collect(&state, 40);
@@ -264,6 +267,7 @@ mod tests {
         state.repo_groups = vec![RepoGroup {
             name: "repo".into(),
             has_focus: false,
+            session: None,
             panes: vec![(make_pane("%1", PaneStatus::Running), PaneGitInfo::default())],
         }];
 
@@ -280,6 +284,7 @@ mod tests {
         let with_root = |root: &str, name: &str, pane_id: &str| RepoGroup {
             name: name.into(),
             has_focus: false,
+            session: None,
             panes: vec![(
                 make_pane(pane_id, PaneStatus::Running),
                 PaneGitInfo {
@@ -308,6 +313,7 @@ mod tests {
         state.repo_groups = vec![RepoGroup {
             name: "repo".into(),
             has_focus: false,
+            session: None,
             panes: vec![(
                 pane,
                 PaneGitInfo {

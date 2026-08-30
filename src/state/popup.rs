@@ -543,11 +543,13 @@ mod tests {
             RepoGroup {
                 name: "alpha".into(),
                 has_focus: true,
+                session: None,
                 panes: vec![],
             },
             RepoGroup {
                 name: "beta".into(),
                 has_focus: false,
+                session: None,
                 panes: vec![],
             },
         ];
@@ -569,11 +571,13 @@ mod tests {
             RepoGroup {
                 name: "alpha".into(),
                 has_focus: true,
+                session: None,
                 panes: vec![(test_pane("%1"), PaneGitInfo::default())],
             },
             RepoGroup {
                 name: "beta".into(),
                 has_focus: false,
+                session: None,
                 panes: vec![(test_pane("%2"), PaneGitInfo::default())],
             },
         ];
@@ -595,6 +599,7 @@ mod tests {
         state.repo_groups = vec![RepoGroup {
             name: "app".into(),
             has_focus: true,
+            session: None,
             panes: vec![(test_pane("%1"), PaneGitInfo::default())],
         }];
         state.global.repo_filter = RepoFilter::Repo("app".into());

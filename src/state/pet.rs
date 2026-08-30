@@ -272,6 +272,7 @@ mod tests {
         state.repo_groups = vec![RepoGroup {
             name: "repo".into(),
             has_focus: false,
+            session: None,
             panes: vec![(pane, PaneGitInfo::default())],
         }];
         state.tick_pet(60);
@@ -290,6 +291,7 @@ mod tests {
         state.repo_groups = vec![RepoGroup {
             name: "repo".into(),
             has_focus: false,
+            session: None,
             panes: vec![(pane, PaneGitInfo::default())],
         }];
         let panel_width = 60u16;
@@ -311,6 +313,7 @@ mod tests {
         state.repo_groups = vec![RepoGroup {
             name: "repo".into(),
             has_focus: false,
+            session: None,
             panes: vec![(pane, PaneGitInfo::default())],
         }];
         state.pet_state = crate::ui::pet::PetState::WalkRight;
@@ -330,6 +333,7 @@ mod tests {
         state.repo_groups = vec![RepoGroup {
             name: "repo".into(),
             has_focus: false,
+            session: None,
             panes: vec![(pane, PaneGitInfo::default())],
         }];
         state.pet_state = crate::ui::pet::PetState::WalkRight;
@@ -353,6 +357,7 @@ mod tests {
         state.repo_groups = vec![RepoGroup {
             name: "repo".into(),
             has_focus: false,
+            session: None,
             panes: vec![(pane, PaneGitInfo::default())],
         }];
         state.pet_state = crate::ui::pet::PetState::Working;
@@ -372,6 +377,7 @@ mod tests {
         state.repo_groups = vec![RepoGroup {
             name: "repo".into(),
             has_focus: false,
+            session: None,
             panes: vec![(pane, PaneGitInfo::default())],
         }];
         state.pet_state = crate::ui::pet::PetState::Working;
@@ -393,6 +399,7 @@ mod tests {
         state.repo_groups = vec![RepoGroup {
             name: "repo".into(),
             has_focus: false,
+            session: None,
             panes: vec![(pane, PaneGitInfo::default())],
         }];
         state.pet_state = crate::ui::pet::PetState::WalkLeft;

@@ -295,6 +295,7 @@ mod tests {
             RepoGroup {
                 name: "app".into(),
                 has_focus: true,
+                session: None,
                 panes: vec![
                     (test_pane("%1", PaneStatus::Running), PaneGitInfo::default()),
                     (test_pane("%2", PaneStatus::Idle), PaneGitInfo::default()),
@@ -307,6 +308,7 @@ mod tests {
             RepoGroup {
                 name: "lib".into(),
                 has_focus: false,
+                session: None,
                 panes: vec![(test_pane("%3", PaneStatus::Waiting), PaneGitInfo::default())],
             },
         ];
@@ -329,11 +331,13 @@ mod tests {
             RepoGroup {
                 name: "alpha".into(),
                 has_focus: true,
+                session: None,
                 panes: vec![],
             },
             RepoGroup {
                 name: "beta".into(),
                 has_focus: false,
+                session: None,
                 panes: vec![],
             },
         ];

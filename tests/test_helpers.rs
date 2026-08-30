@@ -131,6 +131,7 @@ pub fn make_repo_group(name: &str, panes: Vec<PaneInfo>) -> tmux_agent_sidebar::
     tmux_agent_sidebar::group::RepoGroup {
         name: name.into(),
         has_focus: true,
+        session: None,
         panes: panes
             .into_iter()
             .map(|p| (p, tmux_agent_sidebar::group::PaneGitInfo::default()))

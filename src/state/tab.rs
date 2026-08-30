@@ -197,6 +197,7 @@ mod tests {
         RepoGroup {
             name: "project".into(),
             has_focus: true,
+            session: None,
             panes: vec![(test_pane(pane_id), PaneGitInfo::default())],
         }
     }

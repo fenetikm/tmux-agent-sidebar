@@ -97,7 +97,7 @@ fn eligible_pane_ids(
         .cloned()
         .collect();
 
-    group::group_panes_by_repo(&scoped_sessions)
+    group::group_panes(&scoped_sessions, group::SortMode::Repository)
         .iter()
         .flat_map(|group| group.panes.iter())
         .map(|(pane, _)| pane.pane_id.clone())
@@ -293,7 +293,7 @@ fn no_index_message(index: u32) -> String {
 }
 
 fn focus_by_index(sessions: &[SessionInfo], index: u32) -> i32 {
-    let groups = group::group_panes_by_repo(sessions);
+    let groups = group::group_panes(sessions, group::SortMode::Repository);
     let (status_filter, repo_filter) = load_sidebar_filters();
     let visible = group::visible_pane_ids(&groups, status_filter, &repo_filter);
 
@@ -735,7 +735,7 @@ mod tests {
         let mut p2 = pane_at_path("%2", "/tmp/a-repo", "one");
         p2.status = PaneStatus::Idle;
         let sessions = vec![session("one", vec![p1, p2])];
-        let groups = group::group_panes_by_repo(&sessions);
+        let groups = group::group_panes(&sessions, group::SortMode::Repository);
         let visible = group::visible_pane_ids(&groups, StatusFilter::Running, &RepoFilter::All);
         assert_eq!(select_pane_by_index(&visible, 1), Some("%1".into()));
         assert_eq!(select_pane_by_index(&visible, 2), None);
