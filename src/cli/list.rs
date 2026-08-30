@@ -136,7 +136,7 @@ fn collect_entries(
     ignore_filters: bool,
 ) -> Vec<PaneEntry> {
     let scoped = scoped_sessions(sessions, scope, active_session);
-    let groups = group::group_panes(&scoped, group::SortMode::Repository);
+    let groups = group::group_panes(&scoped, crate::ui::sort_mode_from_tmux());
     let (status_filter, repo_filter) = if ignore_filters {
         (StatusFilter::All, RepoFilter::All)
     } else {

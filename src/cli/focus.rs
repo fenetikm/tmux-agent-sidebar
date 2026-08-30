@@ -97,7 +97,7 @@ fn eligible_pane_ids(
         .cloned()
         .collect();
 
-    group::group_panes(&scoped_sessions, group::SortMode::Repository)
+    group::group_panes(&scoped_sessions, crate::ui::sort_mode_from_tmux())
         .iter()
         .flat_map(|group| group.panes.iter())
         .map(|(pane, _)| pane.pane_id.clone())
@@ -293,7 +293,7 @@ fn no_index_message(index: u32) -> String {
 }
 
 fn focus_by_index(sessions: &[SessionInfo], index: u32) -> i32 {
-    let groups = group::group_panes(sessions, group::SortMode::Repository);
+    let groups = group::group_panes(sessions, crate::ui::sort_mode_from_tmux());
     let (status_filter, repo_filter) = load_sidebar_filters();
     let visible = group::visible_pane_ids(&groups, status_filter, &repo_filter);
 
@@ -455,6 +455,12 @@ mod tests {
     fn pane_at_path(id: &str, path: &str, session_name: &str) -> PaneInfo {
         let mut pane = pane(id, false, PaneStatus::Running, session_name);
         pane.path = path.into();
+        pane
+    }
+
+    fn pane_in_tmux_session(id: &str, path: &str, tmux_session: &str) -> PaneInfo {
+        let mut pane = pane_at_path(id, path, tmux_session);
+        pane.tmux_session = tmux_session.into();
         pane
     }
 
@@ -739,6 +745,36 @@ mod tests {
         let visible = group::visible_pane_ids(&groups, StatusFilter::Running, &RepoFilter::All);
         assert_eq!(select_pane_by_index(&visible, 1), Some("%1".into()));
         assert_eq!(select_pane_by_index(&visible, 2), None);
+    }
+
+    #[test]
+    fn cycling_order_follows_session_grouping_in_session_mode() {
+        // The same repo open in two tmux sessions. Repository mode walks it
+        // as one block in encounter order; session mode walks the sessions
+        // alphabetically, so "personal" comes before "work".
+        let sessions = vec![
+            session(
+                "work",
+                vec![pane_in_tmux_session("%1", "/tmp/shared-repo", "work")],
+            ),
+            session(
+                "personal",
+                vec![pane_in_tmux_session("%2", "/tmp/shared-repo", "personal")],
+            ),
+        ];
+
+        let repo_groups = group::group_panes(&sessions, group::SortMode::Repository);
+        assert_eq!(
+            group::visible_pane_ids(&repo_groups, StatusFilter::All, &RepoFilter::All),
+            vec!["%1", "%2"]
+        );
+
+        let session_groups = group::group_panes(&sessions, group::SortMode::Session);
+        assert_eq!(
+            group::visible_pane_ids(&session_groups, StatusFilter::All, &RepoFilter::All),
+            vec!["%2", "%1"],
+            "session mode orders the walk by session name"
+        );
     }
 
     #[test]
