@@ -13,7 +13,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
 };
 
-use crate::{state::AppState, tmux};
+use crate::{group::SortMode, state::AppState, tmux};
 
 pub const BOTTOM_PANEL_HEIGHT: u16 = 20;
 
@@ -111,6 +111,25 @@ pub fn hide_repo_filter_from_tmux() -> bool {
         .unwrap_or(false)
 }
 
+/// Read `@sidebar_sorting` from tmux global options, defaulting to
+/// `SortMode::Repository`. Unset, empty, `repository`, and any typo all fall
+/// through to the default; only `session` selects session grouping.
+pub fn sort_mode_from_options(opts: &HashMap<String, String>) -> SortMode {
+    match opts
+        .get(tmux::SIDEBAR_SORTING)
+        .map(|s| s.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("session") => SortMode::Session,
+        _ => SortMode::Repository,
+    }
+}
+
+pub fn sort_mode_from_tmux() -> SortMode {
+    let opts = crate::tmux::get_all_global_options();
+    sort_mode_from_options(&opts)
+}
+
 fn parse_tmux_truthy(raw: &str) -> bool {
     matches!(
         raw.trim().to_ascii_lowercase().as_str(),
@@ -127,6 +146,7 @@ pub fn apply_sidebar_ui_options(state: &mut AppState, opts: &HashMap<String, Str
     state.compact_rows = compact_rows_from_options(opts);
     state.hide_filter_bar = hide_filter_bar_from_options(opts);
     state.hide_repo_filter = hide_repo_filter_from_options(opts);
+    state.sort_mode = sort_mode_from_options(opts);
     if state.hide_filter_bar && state.focus_state.focus == crate::state::Focus::Filter {
         state.focus_state.focus = crate::state::Focus::Panes;
     }
@@ -371,5 +391,49 @@ mod tests {
         apply_sidebar_ui_options(&mut state, &opts);
         assert!(state.hide_filter_bar);
         assert!(!state.show_filter_bar());
+    }
+
+    #[test]
+    fn sort_mode_defaults_to_repository_when_option_missing() {
+        let opts = HashMap::new();
+        assert_eq!(
+            sort_mode_from_options(&opts),
+            crate::group::SortMode::Repository
+        );
+    }
+
+    #[test]
+    fn sort_mode_accepts_session_spellings() {
+        for value in ["session", "Session", "SESSION", " session "] {
+            let opts = opts_with(tmux::SIDEBAR_SORTING, value);
+            assert_eq!(
+                sort_mode_from_options(&opts),
+                crate::group::SortMode::Session,
+                "{value:?} should select session grouping"
+            );
+        }
+    }
+
+    #[test]
+    fn sort_mode_falls_back_to_repository_for_everything_else() {
+        // A tmux option cannot be validated when it is set, so a typo
+        // yielding the default is the contract every other option offers.
+        for value in ["repository", "Repository", "", "  ", "sessions", "garbage"] {
+            let opts = opts_with(tmux::SIDEBAR_SORTING, value);
+            assert_eq!(
+                sort_mode_from_options(&opts),
+                crate::group::SortMode::Repository,
+                "{value:?} should fall back to repository grouping"
+            );
+        }
+    }
+
+    #[test]
+    fn apply_sidebar_ui_options_assigns_sort_mode() {
+        let mut state = AppState::new("%0".into());
+        assert_eq!(state.sort_mode, crate::group::SortMode::Repository);
+        let opts = opts_with(tmux::SIDEBAR_SORTING, "session");
+        apply_sidebar_ui_options(&mut state, &opts);
+        assert_eq!(state.sort_mode, crate::group::SortMode::Session);
     }
 }

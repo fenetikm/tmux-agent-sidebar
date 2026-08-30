@@ -99,6 +99,10 @@ pub const SIDEBAR_HIDE_FILTER_BAR: &str = "@sidebar_hide_filter_bar";
 /// Hide the repo filter button (`— ▾`) and show all repositories regardless
 /// of `@sidebar_repo_filter`. Off by default.
 pub const SIDEBAR_HIDE_REPO_FILTER: &str = "@sidebar_hide_repo_filter";
+/// Grouping mode for the agent list: `repository` (default) or `session`.
+/// Read on every refresh, so a live `tmux set -g` takes effect on the next
+/// cycle. Any unrecognised value means `repository`.
+pub const SIDEBAR_SORTING: &str = "@sidebar_sorting";
 pub const SIDEBAR_NOTIFICATIONS: &str = "@sidebar_notifications";
 pub const SIDEBAR_NOTIFICATIONS_EVENTS: &str = "@sidebar_notifications_events";
 pub const SIDEBAR_NOTIFICATIONS_BACKEND: &str = "@sidebar_notifications_backend";

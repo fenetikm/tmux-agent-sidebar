@@ -72,7 +72,7 @@ impl AppState {
                     .map(|(p, _)| (p.pane_id.clone(), p.session_id.clone()))
             })
             .collect();
-        self.repo_groups = crate::group::group_panes(&sessions, crate::group::SortMode::Repository);
+        self.repo_groups = crate::group::group_panes(&sessions, self.sort_mode);
         if !self.session_names.dirty
             && self
                 .repo_groups

@@ -152,6 +152,10 @@ pub struct AppState {
     /// Hide the repo filter button and treat the agent list as unfiltered by
     /// repository. Loaded at startup from `@sidebar_hide_repo_filter`.
     pub hide_repo_filter: bool,
+    /// How the agent list is grouped (`@sidebar_sorting`). Re-read from the
+    /// `show -g` snapshot on every layout sync, so a live `tmux set -g`
+    /// takes effect on the next refresh without restarting the sidebar.
+    pub sort_mode: crate::group::SortMode,
 }
 
 impl AppState {
@@ -204,6 +208,7 @@ impl AppState {
             compact_rows: false,
             hide_filter_bar: false,
             hide_repo_filter: false,
+            sort_mode: crate::group::SortMode::Repository,
         };
         crate::state::pet::reseed_pet_idle_motion(&mut state);
         state
