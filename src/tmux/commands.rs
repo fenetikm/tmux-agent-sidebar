@@ -100,6 +100,18 @@ pub fn kill_window(window_id: &str) -> Result<(), String> {
     run_tmux_capture(&["kill-window", "-t", window_id]).map(|_| ())
 }
 
+/// Switch the attached client to a session by name. Unlike [`select_pane`]
+/// there is no pane to route through, which is the point: this is how the
+/// sidebar reaches a session that holds no agents. The `=` prefix is tmux's
+/// exact-match syntax, so a session name that is a prefix of another one
+/// still resolves to itself.
+pub fn switch_session(session_name: &str) {
+    if session_name.is_empty() {
+        return;
+    }
+    let _ = run_tmux(&["switch-client", "-t", &format!("={session_name}")]);
+}
+
 pub fn select_pane(pane_id: &str) {
     // Find the session containing this pane and switch to it first
     let session_id = display_message(pane_id, "#{session_id}");

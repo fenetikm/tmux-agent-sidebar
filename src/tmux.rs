@@ -6,7 +6,7 @@ mod types;
 
 pub use commands::{
     display_message, kill_window, new_window, pane_session_name, run_tmux, run_tmux_capture,
-    select_pane, send_command, set_window_option, show_message,
+    select_pane, send_command, set_window_option, show_message, switch_session,
 };
 pub use options::{
     BG_CMD_PLACEHOLDER, PANE_AGENT, PANE_ATTENTION, PANE_BG_CMD, PANE_CWD, PANE_NAME,
@@ -33,16 +33,16 @@ pub use options::{
     SIDEBAR_ICON_UNKNOWN, SIDEBAR_ICON_WAITING, SIDEBAR_NOTIFICATIONS,
     SIDEBAR_NOTIFICATIONS_BACKEND, SIDEBAR_NOTIFICATIONS_CLICK_SCRIPT,
     SIDEBAR_NOTIFICATIONS_EVENTS, SIDEBAR_NOTIFICATIONS_ICON, SIDEBAR_NOTIFICATIONS_SOUND,
-    SIDEBAR_PET, SIDEBAR_PID, SIDEBAR_POSITION, SIDEBAR_REPO_FILTER, SIDEBAR_SHOW_SESSION_NAMES,
-    SIDEBAR_SORTING, SIDEBAR_WIDTH, get_all_global_options, get_option, get_pane_option_value,
-    set_pane_option, unset_pane_option,
+    SIDEBAR_PET, SIDEBAR_PID, SIDEBAR_POSITION, SIDEBAR_REPO_FILTER, SIDEBAR_SHOW_EMPTY_SESSIONS,
+    SIDEBAR_SHOW_SESSION_NAMES, SIDEBAR_SORTING, SIDEBAR_WIDTH, get_all_global_options, get_option,
+    get_pane_option_value, set_pane_option, unset_pane_option,
 };
 pub use panes::{
     SidebarPaneInfo, find_active_pane, focused_pane_path, get_pane_path, get_sidebar_pane_info,
     query_active_window_panes,
 };
 pub use query::query_sessions;
-pub(crate) use query::query_sessions_with_process_snapshot;
+pub(crate) use query::{SessionSnapshot, query_session_snapshot};
 pub use types::{
     AgentType, CLAUDE_AGENT, CODEX_AGENT, CURSOR_AGENT, OPENCODE_AGENT, PaneInfo, PaneStatus,
     PermissionMode, SessionInfo, WindowInfo, WorktreeMetadata,

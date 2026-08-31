@@ -28,6 +28,16 @@ pub struct SpawnRemoveTarget {
     pub pane_id: String,
 }
 
+/// Click target for the header of a tmux session that holds no agents,
+/// rendered when `@sidebar_show_empty_sessions` is on. Clicking it switches
+/// the attached client to that session. Sessions that do have agents are
+/// reached by clicking one of their panes instead.
+#[derive(Debug, Clone)]
+pub struct SessionJumpTarget {
+    pub rect: ratatui::layout::Rect,
+    pub session: String,
+}
+
 /// Screen-positioned hyperlink overlay for OSC 8 terminal hyperlinks.
 #[derive(Debug, Clone)]
 pub struct HyperlinkOverlay {
@@ -62,6 +72,10 @@ pub struct FrameLayout {
     /// Click regions for the red `×` remove marker rendered next to the
     /// branch of each sidebar-spawned pane. One entry per visible row.
     pub spawn_remove_targets: Vec<SpawnRemoveTarget>,
+    /// Click regions for agent-less session headers. Empty unless
+    /// `@sidebar_show_empty_sessions` is on and the list is grouped by
+    /// session.
+    pub session_jump_targets: Vec<SessionJumpTarget>,
     /// OSC 8 hyperlink overlays the main loop writes after each frame so
     /// terminals can recognise PR numbers as clickable links.
     pub hyperlink_overlays: Vec<HyperlinkOverlay>,
@@ -308,6 +322,19 @@ impl AppState {
             .map(|t| t.pane_id.clone())
         {
             self.open_remove_confirm_for_pane(pane_id);
+            return;
+        }
+
+        // Agent-less session headers: no pane to select, so the click is a
+        // plain jump to that session.
+        if let Some(session) = self
+            .layout
+            .session_jump_targets
+            .iter()
+            .find(|t| point_in_rect(row, col, t.rect))
+            .map(|t| t.session.clone())
+        {
+            crate::tmux::switch_session(&session);
             return;
         }
 

@@ -103,6 +103,11 @@ pub const SIDEBAR_HIDE_REPO_FILTER: &str = "@sidebar_hide_repo_filter";
 /// Read on every refresh, so a live `tmux set -g` takes effect on the next
 /// cycle. Any unrecognised value means `repository`.
 pub const SIDEBAR_SORTING: &str = "@sidebar_sorting";
+/// List tmux sessions that hold no agents as a bare, dimmed `[name]` header
+/// in the agent list. Off by default, and only honoured when
+/// `@sidebar_sorting` is `session` — repository grouping has no session
+/// headers to hang them from.
+pub const SIDEBAR_SHOW_EMPTY_SESSIONS: &str = "@sidebar_show_empty_sessions";
 pub const SIDEBAR_NOTIFICATIONS: &str = "@sidebar_notifications";
 pub const SIDEBAR_NOTIFICATIONS_EVENTS: &str = "@sidebar_notifications_events";
 pub const SIDEBAR_NOTIFICATIONS_BACKEND: &str = "@sidebar_notifications_backend";

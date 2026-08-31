@@ -51,10 +51,34 @@ impl AppState {
         self.now = crate::time::now_epoch_secs();
     }
 
+    /// Session names that the `list-panes -a` sweep saw but that hold no
+    /// agent panes, so they never reach `repo_groups`. Empty unless the list
+    /// is grouped by session and `@sidebar_show_empty_sessions` is on, which
+    /// keeps the mode check out of the renderer. Blank names are dropped —
+    /// a bare `[]` header is worse than no header.
+    fn agentless_session_names(&self, all_session_names: &[String]) -> Vec<String> {
+        if !self.show_empty_sessions || self.sort_mode != crate::group::SortMode::Session {
+            return Vec::new();
+        }
+        let occupied: HashSet<&str> = self
+            .repo_groups
+            .iter()
+            .filter_map(|group| group.session.as_deref())
+            .collect();
+        let mut names: Vec<String> = all_session_names
+            .iter()
+            .filter(|name| !name.is_empty() && !occupied.contains(name.as_str()))
+            .cloned()
+            .collect();
+        names.sort_by_key(|name| name.to_lowercase());
+        names
+    }
+
     pub(crate) fn apply_session_snapshot(
         &mut self,
         sidebar_focused: bool,
         sessions: Vec<SessionInfo>,
+        all_session_names: &[String],
     ) {
         self.focus_state.sidebar_focused = sidebar_focused;
         // Capture the prior `pane_id → session_id` map so we can detect
@@ -85,6 +109,7 @@ impl AppState {
         {
             self.session_names.dirty = true;
         }
+        self.empty_sessions = self.agentless_session_names(all_session_names);
         self.prune_pane_states_to_current_panes();
         self.rebuild_row_targets();
         self.find_focused_pane();
@@ -168,7 +193,11 @@ impl AppState {
         let sidebar = tmux::get_sidebar_pane_info(&self.tmux_pane);
         self.sidebar_window_id = sidebar.window_id.clone();
         let focused = sidebar.pane_active;
-        let (mut sessions, mut process_snapshot) = tmux::query_sessions_with_process_snapshot();
+        let tmux::SessionSnapshot {
+            mut sessions,
+            mut process_snapshot,
+            all_session_names,
+        } = tmux::query_session_snapshot();
         self.sweep_dead_bg_shells_if_due(&mut sessions, &mut process_snapshot);
         if let Some(process_snapshot) = self.refresh_port_data(&sessions, process_snapshot.as_ref())
         {
@@ -176,9 +205,9 @@ impl AppState {
                 sessions,
                 &process_snapshot.live_agent_panes,
             );
-            self.apply_session_snapshot(focused, sessions);
+            self.apply_session_snapshot(focused, sessions, &all_session_names);
         } else {
-            self.apply_session_snapshot(focused, sessions);
+            self.apply_session_snapshot(focused, sessions, &all_session_names);
         }
         if self.session_names.dirty {
             self.refresh_session_names();
@@ -842,6 +871,90 @@ mod tests {
         assert!(filtered.is_empty());
     }
 
+    // ─── agentless_session_names ────────────────────────────────────
+
+    /// State grouped by session, with `@sidebar_show_empty_sessions` on and
+    /// one repo group per named session.
+    fn state_in_session_mode(occupied: &[&str]) -> AppState {
+        let mut state = AppState::new("%99".into());
+        state.sort_mode = crate::group::SortMode::Session;
+        state.show_empty_sessions = true;
+        state.repo_groups = occupied
+            .iter()
+            .map(|session| crate::group::RepoGroup {
+                name: "repo".into(),
+                has_focus: false,
+                session: Some((*session).to_string()),
+                panes: vec![],
+            })
+            .collect();
+        state
+    }
+
+    #[test]
+    fn agentless_sessions_exclude_sessions_that_hold_agents() {
+        let state = state_in_session_mode(&["work"]);
+
+        let names = state.agentless_session_names(&["work".into(), "idle".into()]);
+
+        assert_eq!(names, vec!["idle"]);
+    }
+
+    #[test]
+    fn agentless_sessions_sorted_case_insensitively() {
+        let state = state_in_session_mode(&[]);
+
+        let names = state.agentless_session_names(&["zulu".into(), "Alpha".into(), "mike".into()]);
+
+        assert_eq!(names, vec!["Alpha", "mike", "zulu"]);
+    }
+
+    #[test]
+    fn agentless_sessions_drop_blank_names() {
+        let state = state_in_session_mode(&[]);
+
+        let names = state.agentless_session_names(&["".into(), "idle".into()]);
+
+        assert_eq!(
+            names,
+            vec!["idle"],
+            "a blank name would render as a bare [] header"
+        );
+    }
+
+    #[test]
+    fn agentless_sessions_empty_when_option_off() {
+        let mut state = state_in_session_mode(&[]);
+        state.show_empty_sessions = false;
+
+        assert!(state.agentless_session_names(&["idle".into()]).is_empty());
+    }
+
+    #[test]
+    fn agentless_sessions_empty_in_repository_mode() {
+        // Repository grouping renders no session headers at all, so there is
+        // nothing for an empty-session row to hang from.
+        let mut state = state_in_session_mode(&[]);
+        state.sort_mode = crate::group::SortMode::Repository;
+
+        assert!(state.agentless_session_names(&["idle".into()]).is_empty());
+    }
+
+    #[test]
+    fn apply_session_snapshot_populates_empty_sessions() {
+        let mut state = state_in_session_mode(&[]);
+        let mut pane = test_pane("%1");
+        pane.tmux_session = "work".into();
+
+        state.apply_session_snapshot(
+            false,
+            test_session(vec![pane]),
+            &["work".into(), "idle".into()],
+        );
+
+        assert_eq!(state.empty_sessions, vec!["idle"]);
+    }
+
     // ─── refresh_session_names ──────────────────────────────────────
     //
     // refresh_session_names no longer scans the filesystem itself; it
@@ -925,7 +1038,7 @@ mod tests {
         state.session_names.dirty = false;
 
         let next_sessions = test_session(vec![pane_with_session("%1", "sess-new")]);
-        state.apply_session_snapshot(false, next_sessions);
+        state.apply_session_snapshot(false, next_sessions, &[]);
 
         assert!(
             state.session_names.dirty,
@@ -941,7 +1054,7 @@ mod tests {
         state.session_names.dirty = false;
 
         let next_sessions = test_session(vec![pane_with_session("%1", "sess-a")]);
-        state.apply_session_snapshot(false, next_sessions);
+        state.apply_session_snapshot(false, next_sessions, &[]);
 
         assert!(
             !state.session_names.dirty,

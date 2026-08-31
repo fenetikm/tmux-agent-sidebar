@@ -2469,6 +2469,44 @@ fn snapshot_background_long_command_truncates_with_ellipsis() {
 }
 
 #[test]
+fn snapshot_session_grouped_agent_list_with_empty_sessions() {
+    // `@sidebar_show_empty_sessions` on: `idle` holds no agents at all, so it
+    // contributes a dimmed header and nothing else, sorted into place between
+    // the two sessions that do have agents.
+    let mut work_pane = make_pane(AgentType::Claude, PaneStatus::Idle);
+    work_pane.tmux_session = "work".into();
+    let mut personal_pane = make_pane(AgentType::Codex, PaneStatus::Idle);
+    personal_pane.pane_id = "%2".into();
+    personal_pane.tmux_session = "personal".into();
+
+    let mut state = make_state(vec![]);
+    state.repo_groups = vec![
+        make_repo_group_in_session("project", "personal", vec![personal_pane]),
+        make_repo_group_in_session("project", "work", vec![work_pane]),
+    ];
+    state.show_empty_sessions = true;
+    state.empty_sessions = vec!["idle".into(), "zulu".into()];
+    state.bottom_panel_height = 0;
+    state.rebuild_row_targets();
+
+    let output = render_to_string(&mut state, 28, 25);
+    insta::assert_snapshot!(output, @"
+     ≡2  ●0  ◎0  ◐0  ○2  ✕0
+    ⓘ                        — ▾
+    [idle]
+    [personal]
+    project
+      ○ codex
+        Waiting for prompt…
+    [work]
+    project
+    ┃ ○ claude
+    ┃   Waiting for prompt…
+    [zulu]
+    ");
+}
+
+#[test]
 fn snapshot_session_grouped_agent_list() {
     let mut work_pane = make_pane(AgentType::Claude, PaneStatus::Idle);
     work_pane.tmux_session = "work".into();

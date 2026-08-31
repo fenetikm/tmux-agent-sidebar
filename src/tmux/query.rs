@@ -110,19 +110,32 @@ type SessionMap = indexmap::IndexMap<String, indexmap::IndexMap<String, WindowIn
 /// later retarget a permission-mode update at the right pane.
 type CodexPidEntry = (String, usize, u32);
 
+/// One `list-panes -a` sweep: the agent-bearing sessions, the process
+/// snapshot they were resolved against, and every session name the sweep
+/// touched.
+#[derive(Default)]
+pub(crate) struct SessionSnapshot {
+    pub sessions: Vec<SessionInfo>,
+    pub process_snapshot: Option<ProcessSnapshot>,
+    /// Every non-excluded tmux session name seen while parsing, including
+    /// sessions whose panes all turned out to be agent-less and so never
+    /// survive into `sessions`. This is the only place those names still
+    /// exist — `finalize_sessions` drops them.
+    pub all_session_names: Vec<String>,
+}
+
 /// Query all sessions, windows, and panes in a single `tmux list-panes -a` call
 /// (plus one optional `ps` call for process-backed agent checks), instead of
 /// N+1 subprocess invocations.
 pub fn query_sessions() -> Vec<SessionInfo> {
-    query_sessions_with_process_snapshot().0
+    query_session_snapshot().sessions
 }
 
-pub(crate) fn query_sessions_with_process_snapshot() -> (Vec<SessionInfo>, Option<ProcessSnapshot>)
-{
+pub(crate) fn query_session_snapshot() -> SessionSnapshot {
     let pane_format = pane_format();
     let all_panes_output = match run_tmux(&["list-panes", "-a", "-F", &pane_format]) {
         Some(s) => s,
-        None => return (vec![], None),
+        None => return SessionSnapshot::default(),
     };
 
     let process_snapshot = process_snapshot_for_panes(&all_panes_output);
@@ -137,7 +150,16 @@ pub(crate) fn query_sessions_with_process_snapshot() -> (Vec<SessionInfo>, Optio
     {
         resolve_codex_permission_modes(&mut sessions_map, &codex_pids, snapshot);
     }
-    (finalize_sessions(sessions_map), process_snapshot)
+    // Capture the keys before `finalize_sessions` consumes the map: a
+    // session whose every pane was agent-less still has an entry here,
+    // because `build_session_hierarchy_with_exclusions` creates it from the
+    // session columns of the pane line, before the pane itself is parsed.
+    let all_session_names: Vec<String> = sessions_map.keys().cloned().collect();
+    SessionSnapshot {
+        sessions: finalize_sessions(sessions_map),
+        process_snapshot,
+        all_session_names,
+    }
 }
 
 /// Parse the raw `tmux list-panes` output into an indexed session→window→pane

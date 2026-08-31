@@ -1,12 +1,13 @@
 use ratatui::layout::Rect;
 
 use super::{REMOVE_MARKER_HIT_WIDTH, SPAWN_BUTTON};
-use crate::state::{AppState, RepoSpawnTarget, SpawnRemoveTarget};
+use crate::state::{AppState, RepoSpawnTarget, SessionJumpTarget, SpawnRemoveTarget};
 
 pub(super) fn materialize(
     state: &mut AppState,
     pending_spawn: Vec<(usize, String, String, Option<String>)>,
     pending_remove: Vec<(usize, u16, String)>,
+    pending_session_jump: Vec<(usize, String)>,
     scroll_offset: usize,
     list_area: Rect,
 ) {
@@ -58,6 +59,25 @@ pub(super) fn materialize(
             })
         })
         .collect();
+
+    // The whole header line is the target: there is no glyph to aim at, and
+    // the row has nothing else on it to click.
+    state.layout.session_jump_targets = pending_session_jump
+        .into_iter()
+        .filter_map(|(line_idx, session)| {
+            if line_idx < scroll_offset {
+                return None;
+            }
+            let screen_row = (line_idx - scroll_offset) as u16;
+            if screen_row >= list_area.height {
+                return None;
+            }
+            Some(SessionJumpTarget {
+                rect: Rect::new(list_area.x, list_area.y + screen_row, list_area.width, 1),
+                session,
+            })
+        })
+        .collect();
 }
 
 #[cfg(test)]
@@ -82,6 +102,7 @@ mod tests {
         materialize(
             &mut state,
             vec![(0, "repo".into(), "/tmp/repo".into(), None)],
+            Vec::new(),
             Vec::new(),
             0,
             list_area,
@@ -110,6 +131,7 @@ mod tests {
             &mut state,
             Vec::new(),
             vec![(2, marker_col, "%42".into())],
+            Vec::new(),
             0,
             list_area,
         );
@@ -127,6 +149,56 @@ mod tests {
     }
 
     #[test]
+    fn materialize_spans_the_full_width_for_session_jump_targets() {
+        let mut state = AppState::new("%0".into());
+        let list_area = test_list_area();
+
+        materialize(
+            &mut state,
+            Vec::new(),
+            Vec::new(),
+            vec![(1, "idle".into())],
+            0,
+            list_area,
+        );
+
+        assert_eq!(state.layout.session_jump_targets.len(), 1);
+        let target = &state.layout.session_jump_targets[0];
+        assert_eq!(target.session, "idle");
+        assert_eq!(target.rect.x, list_area.x);
+        assert_eq!(target.rect.y, list_area.y + 1);
+        assert_eq!(target.rect.width, list_area.width);
+        assert_eq!(target.rect.height, 1);
+    }
+
+    #[test]
+    fn materialize_drops_offscreen_session_jump_targets() {
+        let mut state = AppState::new("%0".into());
+        let list_area = test_list_area();
+
+        materialize(
+            &mut state,
+            Vec::new(),
+            Vec::new(),
+            vec![
+                (0, "above".into()),
+                (5, "visible".into()),
+                (99, "below".into()),
+            ],
+            3,
+            list_area,
+        );
+
+        let sessions: Vec<&str> = state
+            .layout
+            .session_jump_targets
+            .iter()
+            .map(|t| t.session.as_str())
+            .collect();
+        assert_eq!(sessions, vec!["visible"]);
+    }
+
+    #[test]
     fn materialize_filters_out_lines_above_scroll_offset() {
         let mut state = AppState::new("%0".into());
         let list_area = test_list_area();
@@ -138,6 +210,7 @@ mod tests {
                 (5, "visible".into(), "/repo/visible".into(), None),
             ],
             vec![(0, 20, "%above".into()), (5, 20, "%visible".into())],
+            Vec::new(),
             3,
             list_area,
         );
@@ -161,6 +234,7 @@ mod tests {
                 (15, "outside".into(), "/repo/outside".into(), None),
             ],
             vec![(0, 20, "%inside".into()), (15, 20, "%outside".into())],
+            Vec::new(),
             0,
             list_area,
         );
@@ -186,7 +260,14 @@ mod tests {
             pane_id: "%stale".into(),
         }];
 
-        materialize(&mut state, Vec::new(), Vec::new(), 0, test_list_area());
+        materialize(
+            &mut state,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            0,
+            test_list_area(),
+        );
 
         assert!(state.layout.repo_spawn_targets.is_empty());
         assert!(state.layout.spawn_remove_targets.is_empty());

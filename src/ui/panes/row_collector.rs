@@ -5,7 +5,8 @@ use ratatui::{
 
 use super::SPAWN_BUTTON;
 use super::row;
-use crate::state::{AppState, Focus};
+use crate::group::RepoGroup;
+use crate::state::{AppState, Focus, RepoFilter, StatusFilter};
 use crate::ui::text::display_width;
 
 #[derive(Debug, Default)]
@@ -14,6 +15,41 @@ pub(super) struct CollectedRows {
     pub line_to_row: Vec<Option<usize>>,
     pub pending_spawn: Vec<(usize, String, String, Option<String>)>,
     pub pending_remove: Vec<(usize, u16, String)>,
+    pub pending_session_jump: Vec<(usize, String)>,
+}
+
+/// One block of the agent list: a repo group, or a tmux session holding no
+/// agents at all, which has no repos to render underneath it.
+enum Block<'a> {
+    Repo(&'a RepoGroup),
+    EmptySession(&'a str),
+}
+
+/// Interleave the agent-less sessions into the repo-group sequence by
+/// session name, so an empty session lands in its alphabetical slot instead
+/// of a trailing clump. Both inputs arrive sorted case-insensitively by
+/// session name, so one merge pass suffices. `empty_sessions` is empty in
+/// repository grouping, where this degenerates to the group list.
+fn merge_blocks<'a>(groups: &'a [RepoGroup], empty_sessions: &'a [String]) -> Vec<Block<'a>> {
+    if empty_sessions.is_empty() {
+        return groups.iter().map(Block::Repo).collect();
+    }
+
+    let mut blocks = Vec::with_capacity(groups.len() + empty_sessions.len());
+    let mut empties = empty_sessions.iter().peekable();
+    for group in groups {
+        let group_key = group.session.as_deref().unwrap_or_default().to_lowercase();
+        while let Some(name) = empties.peek() {
+            if name.to_lowercase() >= group_key {
+                break;
+            }
+            blocks.push(Block::EmptySession(name.as_str()));
+            empties.next();
+        }
+        blocks.push(Block::Repo(group));
+    }
+    blocks.extend(empties.map(|name| Block::EmptySession(name.as_str())));
+    blocks
 }
 
 pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
@@ -26,7 +62,42 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
     let mut prev_session: Option<String> = None;
     let mut row_index: usize = 0;
 
-    for group in &state.repo_groups {
+    // Under an active filter the list answers a narrower question, and a
+    // session header with nothing beneath it reads as a rendering bug rather
+    // than as information, so agent-less sessions drop out entirely.
+    let unfiltered =
+        filter == StatusFilter::All && matches!(state.effective_repo_filter(), RepoFilter::All);
+    let empty_sessions: &[String] = if unfiltered {
+        &state.empty_sessions
+    } else {
+        &[]
+    };
+
+    for block in merge_blocks(&state.repo_groups, empty_sessions) {
+        let group = match block {
+            Block::Repo(group) => group,
+            Block::EmptySession(session_name) => {
+                if !first_group {
+                    collected.lines.push(Line::from(""));
+                    collected.line_to_row.push(None);
+                }
+                first_group = false;
+
+                // Dimmed, so an idle session is distinguishable at a glance
+                // from one whose agents merely scrolled out of view.
+                collected
+                    .pending_session_jump
+                    .push((collected.lines.len(), session_name.to_string()));
+                collected.lines.push(Line::from(Span::styled(
+                    format!("[{session_name}]"),
+                    Style::default().fg(theme.text_inactive),
+                )));
+                collected.line_to_row.push(None);
+                prev_session = Some(session_name.to_string());
+                continue;
+            }
+        };
+
         if !state.effective_repo_filter().matches_group(&group.name) {
             continue;
         }
@@ -444,6 +515,116 @@ mod tests {
             texts[work - 1],
             "",
             "the blank separator sits above the session header"
+        );
+    }
+
+    /// Session grouping with `@sidebar_show_empty_sessions` already applied,
+    /// i.e. `empty_sessions` populated the way `apply_session_snapshot` would.
+    fn state_with_empty_sessions(groups: Vec<RepoGroup>, empty: &[&str]) -> AppState {
+        let mut state = AppState::new("%0".into());
+        state.repo_groups = groups;
+        state.show_empty_sessions = true;
+        state.empty_sessions = empty.iter().map(|s| s.to_string()).collect();
+        state
+    }
+
+    #[test]
+    fn collect_interleaves_empty_sessions_by_name() {
+        let state = state_with_empty_sessions(
+            vec![
+                group_in_session("repo-a", Some("beta"), "%1"),
+                group_in_session("repo-b", Some("delta"), "%2"),
+            ],
+            &["alpha", "charlie", "echo"],
+        );
+        let texts = line_texts(&collect(&state, 40));
+
+        let headers: Vec<&String> = texts.iter().filter(|t| t.starts_with('[')).collect();
+        assert_eq!(
+            headers,
+            vec!["[alpha]", "[beta]", "[charlie]", "[delta]", "[echo]"],
+            "empty sessions sort into place, not into a trailing clump"
+        );
+    }
+
+    #[test]
+    fn collect_emits_nothing_under_an_empty_session_header() {
+        let state = state_with_empty_sessions(
+            vec![group_in_session("repo-a", Some("work"), "%1")],
+            &["idle"],
+        );
+        let texts = line_texts(&collect(&state, 40));
+
+        let idle = texts.iter().position(|t| t == "[idle]").unwrap();
+        assert_eq!(
+            texts[idle + 1],
+            "",
+            "the next line is the separator before the [work] block"
+        );
+        assert_eq!(texts[idle + 2], "[work]");
+    }
+
+    #[test]
+    fn collect_registers_a_jump_target_per_empty_session_header() {
+        let state = state_with_empty_sessions(
+            vec![group_in_session("repo-a", Some("work"), "%1")],
+            &["idle"],
+        );
+        let collected = collect(&state, 40);
+        let texts = line_texts(&collected);
+
+        let sessions: Vec<&str> = collected
+            .pending_session_jump
+            .iter()
+            .map(|(_, name)| name.as_str())
+            .collect();
+        assert_eq!(sessions, vec!["idle"], "only agent-less headers jump");
+        let (line_idx, _) = &collected.pending_session_jump[0];
+        assert_eq!(texts[*line_idx], "[idle]");
+    }
+
+    #[test]
+    fn collect_hides_empty_sessions_under_a_status_filter() {
+        let mut state = state_with_empty_sessions(
+            vec![group_in_session("repo-a", Some("work"), "%1")],
+            &["idle"],
+        );
+        state.global.status_filter = StatusFilter::Running;
+        let texts = line_texts(&collect(&state, 40));
+
+        assert!(
+            !texts.iter().any(|t| t == "[idle]"),
+            "a header with nothing beneath it reads as a bug under a filter: {texts:?}"
+        );
+        assert!(collect(&state, 40).pending_session_jump.is_empty());
+    }
+
+    #[test]
+    fn collect_hides_empty_sessions_under_a_repo_filter() {
+        let mut state = state_with_empty_sessions(
+            vec![group_in_session("repo-a", Some("work"), "%1")],
+            &["idle"],
+        );
+        state.global.repo_filter = RepoFilter::Repo("repo-a".into());
+        let texts = line_texts(&collect(&state, 40));
+
+        assert!(
+            !texts.iter().any(|t| t == "[idle]"),
+            "repo-filtered lists answer a narrower question: {texts:?}"
+        );
+    }
+
+    #[test]
+    fn collect_emits_no_leading_separator_when_an_empty_session_is_first() {
+        let state = state_with_empty_sessions(
+            vec![group_in_session("repo-a", Some("work"), "%1")],
+            &["alpha"],
+        );
+        let texts = line_texts(&collect(&state, 40));
+
+        assert_eq!(
+            texts[0], "[alpha]",
+            "the list still starts immediately below the header: {texts:?}"
         );
     }
 

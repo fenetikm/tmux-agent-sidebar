@@ -130,6 +130,15 @@ pub fn sort_mode_from_tmux() -> SortMode {
     sort_mode_from_options(&opts)
 }
 
+/// Read `@sidebar_show_empty_sessions` from tmux global options, defaulting
+/// to `false` so the list keeps showing only sessions that hold agents.
+/// Accepts `on`/`off`, `true`/`false`, `1`/`0` (case-insensitive).
+pub fn show_empty_sessions_from_options(opts: &HashMap<String, String>) -> bool {
+    opts.get(tmux::SIDEBAR_SHOW_EMPTY_SESSIONS)
+        .map(|s| parse_tmux_truthy(s))
+        .unwrap_or(false)
+}
+
 fn parse_tmux_truthy(raw: &str) -> bool {
     matches!(
         raw.trim().to_ascii_lowercase().as_str(),
@@ -147,6 +156,7 @@ pub fn apply_sidebar_ui_options(state: &mut AppState, opts: &HashMap<String, Str
     state.hide_filter_bar = hide_filter_bar_from_options(opts);
     state.hide_repo_filter = hide_repo_filter_from_options(opts);
     state.sort_mode = sort_mode_from_options(opts);
+    state.show_empty_sessions = show_empty_sessions_from_options(opts);
     if state.hide_filter_bar && state.focus_state.focus == crate::state::Focus::Filter {
         state.focus_state.focus = crate::state::Focus::Panes;
     }
@@ -262,6 +272,34 @@ mod tests {
             assert!(
                 !pet_enabled_from_options(&opts),
                 "expected {value} to disable"
+            );
+        }
+    }
+
+    #[test]
+    fn empty_sessions_default_off_when_option_missing() {
+        let opts = HashMap::new();
+        assert!(!show_empty_sessions_from_options(&opts));
+    }
+
+    #[test]
+    fn empty_sessions_enabled_when_on() {
+        for value in ["on", "ON", "true", "1", "yes"] {
+            let opts = opts_with(tmux::SIDEBAR_SHOW_EMPTY_SESSIONS, value);
+            assert!(
+                show_empty_sessions_from_options(&opts),
+                "expected {value} to show empty sessions"
+            );
+        }
+    }
+
+    #[test]
+    fn empty_sessions_disabled_when_off_or_unrecognised() {
+        for value in ["off", "OFF", "false", "0", "no", "", "maybe"] {
+            let opts = opts_with(tmux::SIDEBAR_SHOW_EMPTY_SESSIONS, value);
+            assert!(
+                !show_empty_sessions_from_options(&opts),
+                "expected {value} to hide empty sessions"
             );
         }
     }

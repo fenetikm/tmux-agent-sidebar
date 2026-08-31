@@ -93,6 +93,7 @@ Common options:
 | `@sidebar_show_session_names` | `on` | Show Claude `/rename` session labels in pane rows. Set `off` to always show the agent label (`claude`, `codex`, `opencode`). |
 | `@sidebar_compact` | `off` | Render every agent entry in two lines. Toggle at runtime with `c`. |
 | `@sidebar_sorting` | `repository` | How the agent list is grouped. `repository` groups each repo into one block across every tmux session. `session` groups repos under a `[session name]` header, so a repo open in two sessions appears under each. Any other value falls back to `repository`. Read at sidebar startup and re-read when the sidebar's window regains focus, so set it in `.tmux.conf` rather than changing it live. |
+| `@sidebar_show_empty_sessions` | `off` | List tmux sessions that hold no agents as a bare, dimmed `[session name]` header with nothing under it, sorted in among the sessions that do. Clicking one switches the attached client to that session. Only honoured when `@sidebar_sorting` is `session`, and hidden while a status or repo filter is active. |
 
 To stop pane titles switching between `claude` and Claude `/rename` labels, add this before loading the plugin:
 

@@ -22,7 +22,9 @@ pub use activity::ActivityState;
 pub use filter::{RepoFilter, StatusFilter};
 pub use focus::{Focus, FocusState};
 pub use global::GlobalState;
-pub use layout::{FrameLayout, HyperlinkOverlay, RepoSpawnTarget, RowTarget, SpawnRemoveTarget};
+pub use layout::{
+    FrameLayout, HyperlinkOverlay, RepoSpawnTarget, RowTarget, SessionJumpTarget, SpawnRemoveTarget,
+};
 pub(crate) use notices::debug_forced_display;
 pub use notices::{ClaudePluginNotice, NoticesCopyTarget, NoticesMissingHookGroup, NoticesState};
 pub use pane_runtime::{PaneRuntimeMap, PaneRuntimeState};
@@ -156,6 +158,14 @@ pub struct AppState {
     /// `show -g` snapshot on every layout sync, so a live `tmux set -g`
     /// takes effect on the next refresh without restarting the sidebar.
     pub sort_mode: crate::group::SortMode,
+    /// Whether agent-less tmux sessions get a bare header row
+    /// (`@sidebar_show_empty_sessions`). Re-read on every layout sync, like
+    /// [`AppState::sort_mode`].
+    pub show_empty_sessions: bool,
+    /// Names of tmux sessions holding no agents, sorted case-insensitively.
+    /// Empty unless `show_empty_sessions` is on *and* the list is grouped by
+    /// session, so the renderer needs no mode check of its own.
+    pub empty_sessions: Vec<String>,
 }
 
 impl AppState {
@@ -209,6 +219,8 @@ impl AppState {
             hide_filter_bar: false,
             hide_repo_filter: false,
             sort_mode: crate::group::SortMode::Repository,
+            show_empty_sessions: false,
+            empty_sessions: vec![],
         };
         crate::state::pet::reseed_pet_idle_motion(&mut state);
         state
@@ -1058,7 +1070,7 @@ mod tests {
             }],
         }];
 
-        state.apply_session_snapshot(true, sessions);
+        state.apply_session_snapshot(true, sessions, &[]);
 
         assert!(state.focus_state.sidebar_focused);
         assert_eq!(state.repo_groups.len(), 1);
