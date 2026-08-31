@@ -2469,6 +2469,52 @@ fn snapshot_background_long_command_truncates_with_ellipsis() {
 }
 
 #[test]
+fn snapshot_single_repo_session_moves_spawn_button_to_header() {
+    // One repo under [work] and two under [personal]: the single-repo block
+    // drops its repo title and takes the `+` up onto the session header, the
+    // two-repo block keeps a title and a `+` per repo.
+    let mut work_pane = make_pane(AgentType::Claude, PaneStatus::Idle);
+    work_pane.tmux_session = "work".into();
+    let mut api_pane = make_pane(AgentType::Codex, PaneStatus::Idle);
+    api_pane.pane_id = "%2".into();
+    api_pane.tmux_session = "personal".into();
+    let mut web_pane = make_pane(AgentType::Codex, PaneStatus::Idle);
+    web_pane.pane_id = "%3".into();
+    web_pane.tmux_session = "personal".into();
+
+    let with_root = |name: &str, session: &str, pane: PaneInfo| {
+        let mut group = make_repo_group_in_session(name, session, vec![pane]);
+        group.panes[0].1.repo_root = Some(format!("/home/u/{name}"));
+        group
+    };
+
+    let mut state = make_state(vec![]);
+    state.repo_groups = vec![
+        with_root("api", "personal", api_pane),
+        with_root("web", "personal", web_pane),
+        with_root("project", "work", work_pane),
+    ];
+    state.bottom_panel_height = 0;
+    state.rebuild_row_targets();
+
+    let output = render_to_string(&mut state, 28, 25);
+    insta::assert_snapshot!(output, @"
+     ≡3  ●0  ◎0  ◐0  ○3  ✕0
+    ⓘ                        — ▾
+    [personal]
+    api                        +
+      ○ codex
+        Waiting for prompt…
+    web                        +
+      ○ codex
+        Waiting for prompt…
+    [work]                     +
+    ┃ ○ claude
+    ┃   Waiting for prompt…
+    ");
+}
+
+#[test]
 fn snapshot_session_grouped_agent_list_with_empty_sessions() {
     // `@sidebar_show_empty_sessions` on: `idle` holds no agents at all, so it
     // contributes a dimmed header and nothing else, sorted into place between
@@ -2495,11 +2541,9 @@ fn snapshot_session_grouped_agent_list_with_empty_sessions() {
     ⓘ                        — ▾
     [idle]
     [personal]
-    project
       ○ codex
         Waiting for prompt…
     [work]
-    project
     ┃ ○ claude
     ┃   Waiting for prompt…
     [zulu]
@@ -2535,11 +2579,9 @@ fn snapshot_session_grouped_agent_list() {
      ≡2  ●0  ◎0  ◐0  ○2  ✕0
     ⓘ                        — ▾
     [personal]
-    project
       ○ codex
         Waiting for prompt…
     [work]
-    project
     ┃ ○ claude
     ┃   Waiting for prompt…
     ");

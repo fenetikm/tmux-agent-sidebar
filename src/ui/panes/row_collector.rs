@@ -1,5 +1,7 @@
+use std::collections::HashMap;
+
 use ratatui::{
-    style::Style,
+    style::{Color, Style},
     text::{Line, Span},
 };
 
@@ -52,6 +54,52 @@ fn merge_blocks<'a>(groups: &'a [RepoGroup], empty_sessions: &'a [String]) -> Ve
     blocks
 }
 
+/// A title at column 0 with the `+` spawn button right-aligned on the same
+/// row. Shared by the repo title row and, when a session holds a single repo
+/// and that row is dropped, by the `[session]` header that takes its place.
+fn title_with_spawn_button(
+    title: &str,
+    title_color: Color,
+    button_color: Color,
+    width: usize,
+) -> Vec<Span<'static>> {
+    let pad_width = width
+        .saturating_sub(display_width(title))
+        .saturating_sub(SPAWN_BUTTON.len());
+    vec![
+        Span::styled(title.to_string(), Style::default().fg(title_color)),
+        Span::raw(" ".repeat(pad_width)),
+        Span::styled(SPAWN_BUTTON, Style::default().fg(button_color)),
+    ]
+}
+
+/// How many repo groups each named session will actually render. Counted
+/// with the same two predicates as the render loop's guards, so a filter
+/// that hides a session's second repo still leaves a single-repo block.
+/// Blank session names are skipped: they emit no `[session]` header, so
+/// their repo title is the only label they have.
+fn renderable_groups_per_session(state: &AppState, filter: StatusFilter) -> HashMap<&str, usize> {
+    let repo_filter = state.effective_repo_filter();
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    for group in &state.repo_groups {
+        let Some(session) = group.session.as_deref().filter(|s| !s.is_empty()) else {
+            continue;
+        };
+        if !repo_filter.matches_group(&group.name) {
+            continue;
+        }
+        if !group
+            .panes
+            .iter()
+            .any(|(pane, _)| filter.matches(&pane.status))
+        {
+            continue;
+        }
+        *counts.entry(session).or_insert(0) += 1;
+    }
+    counts
+}
+
 pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
     let width = width as usize;
     let theme = &state.theme;
@@ -72,6 +120,7 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
     } else {
         &[]
     };
+    let groups_per_session = renderable_groups_per_session(state, filter);
 
     for block in merge_blocks(&state.repo_groups, empty_sessions) {
         let group = match block {
@@ -124,6 +173,28 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
         // mode) and blank session names emit nothing — a bare `[]` line is
         // worse than no line.
         let session = group.session.as_deref().filter(|s| !s.is_empty());
+
+        let group_has_focused_pane = state
+            .focus_state
+            .focused_pane_id
+            .as_ref()
+            .is_some_and(|fid| group.panes.iter().any(|(p, _)| p.pane_id == *fid));
+
+        // Only groups with a resolved repo_root get a spawn button — panes
+        // outside a git repo have no root to spawn into.
+        let repo_root = group
+            .panes
+            .iter()
+            .find_map(|(_, git)| git.repo_root.clone());
+
+        // A session holding exactly one renderable repo drops its repo title
+        // row, which would sit directly under the `[session]` header and add
+        // a second label to a block that already has one. The `+` moves up
+        // onto the header line so the spawn affordance survives.
+        let single_repo_session =
+            session.is_some_and(|name| groups_per_session.get(name) == Some(&1));
+
+        let mut session_header_emitted = false;
         if let Some(session_name) = session
             && prev_session.as_deref() != Some(session_name)
         {
@@ -144,63 +215,58 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
             } else {
                 theme.text_active
             };
-            collected.lines.push(Line::from(Span::styled(
-                format!("[{session_name}]"),
-                Style::default().fg(session_color),
-            )));
+            let header = format!("[{session_name}]");
+            let spans = match repo_root.as_ref().filter(|_| single_repo_session) {
+                Some(root) => {
+                    collected.pending_spawn.push((
+                        collected.lines.len(),
+                        group.name.clone(),
+                        root.clone(),
+                        group.session.clone(),
+                    ));
+                    title_with_spawn_button(&header, session_color, session_color, width)
+                }
+                None => vec![Span::styled(header, Style::default().fg(session_color))],
+            };
+            collected.lines.push(Line::from(spans));
             collected.line_to_row.push(None);
+            session_header_emitted = true;
         }
         prev_session = session.map(|s| s.to_string());
 
-        let group_has_focused_pane = state
-            .focus_state
-            .focused_pane_id
-            .as_ref()
-            .is_some_and(|fid| group.panes.iter().any(|(p, _)| p.pane_id == *fid));
-
-        // Plain repo header at column 0, with a `[+]` spawn button
-        // right-aligned on the same row. Only rendered when the group
-        // has a resolved repo_root — panes outside a git repo get a
-        // plain title.
-        let title = &group.name;
-        let title_color = if group_has_focused_pane {
-            theme.accent
-        } else {
-            theme.text_active
-        };
-        let repo_root = group
-            .panes
-            .iter()
-            .find_map(|(_, git)| git.repo_root.clone());
-        let spans: Vec<Span<'static>> = if let Some(ref root) = repo_root {
-            let title_w = display_width(title);
-            let pad_width = width
-                .saturating_sub(title_w)
-                .saturating_sub(SPAWN_BUTTON.len());
-            collected.pending_spawn.push((
-                collected.lines.len(),
-                group.name.clone(),
-                root.clone(),
-                group.session.clone(),
-            ));
-            let button_color = if group_has_focused_pane {
+        // Plain repo header at column 0, with a `+` spawn button
+        // right-aligned on the same row. Suppressed only when the session
+        // header above it actually rendered and took the button with it —
+        // never leave a block with no label at all.
+        if !(single_repo_session && session_header_emitted) {
+            let title = &group.name;
+            let title_color = if group_has_focused_pane {
                 theme.accent
             } else {
                 theme.text_active
             };
-            vec![
-                Span::styled(title.clone(), Style::default().fg(title_color)),
-                Span::raw(" ".repeat(pad_width)),
-                Span::styled(SPAWN_BUTTON, Style::default().fg(button_color)),
-            ]
-        } else {
-            vec![Span::styled(
-                title.clone(),
-                Style::default().fg(title_color),
-            )]
-        };
-        collected.lines.push(Line::from(spans));
-        collected.line_to_row.push(None);
+            let spans: Vec<Span<'static>> = if let Some(ref root) = repo_root {
+                collected.pending_spawn.push((
+                    collected.lines.len(),
+                    group.name.clone(),
+                    root.clone(),
+                    group.session.clone(),
+                ));
+                let button_color = if group_has_focused_pane {
+                    theme.accent
+                } else {
+                    theme.text_active
+                };
+                title_with_spawn_button(title, title_color, button_color, width)
+            } else {
+                vec![Span::styled(
+                    title.clone(),
+                    Style::default().fg(title_color),
+                )]
+            };
+            collected.lines.push(Line::from(spans));
+            collected.line_to_row.push(None);
+        }
 
         for (pane, git_info) in filtered_panes.iter() {
             let is_selected = state.focus_state.sidebar_focused
@@ -507,7 +573,7 @@ mod tests {
         let work = texts.iter().position(|t| t == "[work]").unwrap();
         assert!(personal < work, "session headers follow group order");
         assert_eq!(
-            texts[personal + 1],
+            texts[work + 1],
             "repo-a",
             "the repo header follows its session header immediately"
         );
@@ -625,6 +691,123 @@ mod tests {
         assert_eq!(
             texts[0], "[alpha]",
             "the list still starts immediately below the header: {texts:?}"
+        );
+    }
+
+    /// A group whose panes resolve to a repo root, so the `+` spawn button
+    /// and its `pending_spawn` entry are rendered.
+    fn group_with_root(name: &str, session: Option<&str>, pane_id: &str) -> RepoGroup {
+        let mut group = group_in_session(name, session, pane_id);
+        group.panes[0].1.repo_root = Some(format!("/repos/{name}"));
+        group
+    }
+
+    #[test]
+    fn collect_hides_the_repo_title_for_a_single_repo_session() {
+        let mut state = AppState::new("%0".into());
+        state.repo_groups = vec![group_in_session("repo-a", Some("work"), "%1")];
+        let texts = line_texts(&collect(&state, 40));
+
+        assert_eq!(texts[0], "[work]");
+        assert!(
+            !texts.iter().any(|t| t == "repo-a"),
+            "the session header already labels the block: {texts:?}"
+        );
+    }
+
+    #[test]
+    fn collect_keeps_repo_titles_when_a_session_holds_two_repos() {
+        let mut state = AppState::new("%0".into());
+        state.repo_groups = vec![
+            group_in_session("repo-a", Some("work"), "%1"),
+            group_in_session("repo-b", Some("work"), "%2"),
+        ];
+        let texts = line_texts(&collect(&state, 40));
+
+        assert!(texts.iter().any(|t| t == "repo-a"));
+        assert!(texts.iter().any(|t| t == "repo-b"));
+    }
+
+    #[test]
+    fn collect_hides_the_repo_title_when_a_filter_leaves_one_repo() {
+        // Two repos, but the status filter drops every pane of the second,
+        // so the block renders as a single-repo session and the title goes
+        // with it.
+        let mut state = AppState::new("%0".into());
+        let mut idle_group = group_in_session("repo-b", Some("work"), "%2");
+        idle_group.panes[0].0.status = PaneStatus::Idle;
+        state.repo_groups = vec![group_in_session("repo-a", Some("work"), "%1"), idle_group];
+        state.global.status_filter = StatusFilter::Running;
+        let texts = line_texts(&collect(&state, 40));
+
+        assert!(
+            !texts.iter().any(|t| t == "repo-a"),
+            "only one repo still renders, so its title is redundant: {texts:?}"
+        );
+    }
+
+    #[test]
+    fn collect_keeps_the_repo_title_for_a_blank_session_name() {
+        // A blank session emits no `[session]` header, so its repo title is
+        // the only label the block has.
+        let mut state = AppState::new("%0".into());
+        state.repo_groups = vec![group_in_session("repo-a", Some(""), "%1")];
+        let texts = line_texts(&collect(&state, 40));
+
+        assert_eq!(texts[0], "repo-a");
+    }
+
+    #[test]
+    fn collect_keeps_the_repo_title_in_repository_mode() {
+        let mut state = AppState::new("%0".into());
+        state.repo_groups = vec![group_in_session("repo-a", None, "%1")];
+        let texts = line_texts(&collect(&state, 40));
+
+        assert_eq!(texts[0], "repo-a");
+    }
+
+    #[test]
+    fn collect_moves_the_spawn_button_onto_a_single_repo_session_header() {
+        let mut state = AppState::new("%0".into());
+        state.repo_groups = vec![group_with_root("repo-a", Some("work"), "%1")];
+        let collected = collect(&state, 40);
+        let texts = line_texts(&collected);
+
+        assert_eq!(collected.pending_spawn.len(), 1);
+        let (line_idx, name, root, session) = &collected.pending_spawn[0];
+        assert_eq!(
+            texts[*line_idx].trim_end(),
+            "[work]                                 +"
+        );
+        assert_eq!(
+            name, "repo-a",
+            "the target still names the repo, not the session"
+        );
+        assert_eq!(root, "/repos/repo-a");
+        assert_eq!(session.as_deref(), Some("work"));
+    }
+
+    #[test]
+    fn collect_leaves_the_spawn_button_on_the_repo_title_for_a_multi_repo_session() {
+        let mut state = AppState::new("%0".into());
+        state.repo_groups = vec![
+            group_with_root("repo-a", Some("work"), "%1"),
+            group_with_root("repo-b", Some("work"), "%2"),
+        ];
+        let collected = collect(&state, 40);
+        let texts = line_texts(&collected);
+
+        let lines: Vec<&str> = collected
+            .pending_spawn
+            .iter()
+            .map(|(idx, _, _, _)| texts[*idx].trim_end())
+            .collect();
+        assert_eq!(
+            lines,
+            vec![
+                "repo-a                                 +",
+                "repo-b                                 +"
+            ]
         );
     }
 
