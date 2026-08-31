@@ -26,6 +26,15 @@ enum Scope {
     Session,
 }
 
+/// Which agent panes `next`/`prev` walk over. `Waiting` narrows the list to
+/// the panes blocked on the user, so a single key lands on whatever needs an
+/// answer instead of stepping through agents that are still working.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Candidates {
+    All,
+    Waiting,
+}
+
 /// Pick the pane to jump to, or `None` when the cursor is already on the only
 /// candidate (or there are no candidates at all).
 ///
@@ -38,8 +47,9 @@ fn select_target_pane(
     active_session: Option<&str>,
     direction: Direction,
     scope: Scope,
+    candidates: Candidates,
 ) -> Option<String> {
-    let pane_ids = eligible_pane_ids(sessions, active_session, scope);
+    let pane_ids = eligible_pane_ids(sessions, active_session, scope, candidates);
     if pane_ids.is_empty() {
         return None;
     }
@@ -70,10 +80,16 @@ fn select_target_pane(
 /// Every agent pane eligible for cycling, in the same repo-group order the
 /// sidebar renders.
 ///
-/// No status filter is applied: `query_sessions` already drops panes without
-/// an `@pane_agent` marker (and the sidebar's own pane), so everything left
-/// here is an agent pane. Cycling covers idle and waiting agents too — those
-/// are precisely the ones a user wants to jump to.
+/// Under `Candidates::All` no status filter is applied: `query_sessions`
+/// already drops panes without an `@pane_agent` marker (and the sidebar's own
+/// pane), so everything left here is an agent pane. Cycling covers idle and
+/// waiting agents too — those are precisely the ones a user wants to jump to.
+///
+/// `Candidates::Waiting` narrows the list to panes blocked on the user, using
+/// the same [`PaneInfo::needs_user_attention`](crate::tmux::PaneInfo::needs_user_attention)
+/// predicate `list --json` reports and the sidebar renders as "waiting for
+/// input" — a stricter `PaneStatus::Waiting` check would miss panes held by a
+/// meta-only `idle_prompt` notification.
 ///
 /// A `Session` scope with no resolvable `active_session` yields nothing. The
 /// alternative — falling back to every session — would silently turn
@@ -82,6 +98,7 @@ fn eligible_pane_ids(
     sessions: &[SessionInfo],
     active_session: Option<&str>,
     scope: Scope,
+    candidates: Candidates,
 ) -> Vec<String> {
     let scoped_session = match scope {
         Scope::All => None,
@@ -100,6 +117,10 @@ fn eligible_pane_ids(
     group::group_panes(&scoped_sessions, crate::ui::sort_mode_from_tmux())
         .iter()
         .flat_map(|group| group.panes.iter())
+        .filter(|(pane, _)| match candidates {
+            Candidates::All => true,
+            Candidates::Waiting => pane.needs_user_attention(),
+        })
         .map(|(pane, _)| pane.pane_id.clone())
         .collect()
 }
@@ -216,7 +237,7 @@ fn focus_last_notification(
     active_session: Option<&str>,
     scope: Scope,
 ) -> i32 {
-    let eligible = eligible_pane_ids(sessions, active_session, scope);
+    let eligible = eligible_pane_ids(sessions, active_session, scope, Candidates::All);
     let stamps = notification_stamps();
 
     match select_last_notified_pane(&eligible, &stamps) {
@@ -231,10 +252,14 @@ fn focus_last_notification(
 
 /// Status-line text shown when there is nowhere to jump. Without it the
 /// command is a silent no-op, indistinguishable from a broken binary.
-fn no_target_message(scope: Scope) -> &'static str {
-    match scope {
-        Scope::All => "agent-sidebar: no other agent pane to focus",
-        Scope::Session => "agent-sidebar: no other agent pane in this session",
+fn no_target_message(scope: Scope, candidates: Candidates) -> &'static str {
+    match (candidates, scope) {
+        (Candidates::All, Scope::All) => "agent-sidebar: no other agent pane to focus",
+        (Candidates::All, Scope::Session) => "agent-sidebar: no other agent pane in this session",
+        (Candidates::Waiting, Scope::All) => "agent-sidebar: no agent waiting for input",
+        (Candidates::Waiting, Scope::Session) => {
+            "agent-sidebar: no agent waiting for input in this session"
+        }
     }
 }
 
@@ -309,7 +334,7 @@ fn focus_by_index(sessions: &[SessionInfo], index: u32) -> i32 {
 
 fn usage() {
     eprintln!(
-        "usage: tmux-agent-sidebar focus <next|prev|notification|<N>|%pane_id> [--scope <all|session>]"
+        "usage: tmux-agent-sidebar focus <next|prev|notification|<N>|%pane_id> [--waiting] [--scope <all|session>]"
     );
 }
 
@@ -328,12 +353,13 @@ fn parse_target(value: &str) -> Option<Target> {
     }
 }
 
-fn parse_args(args: &[String]) -> Result<(Target, Scope), ()> {
+fn parse_args(args: &[String]) -> Result<(Target, Scope, Candidates), ()> {
     let target = args
         .first()
         .and_then(|value| parse_target(value))
         .ok_or(())?;
     let mut scope = Scope::All;
+    let mut candidates = Candidates::All;
     let mut index = 1;
 
     while index < args.len() {
@@ -350,11 +376,21 @@ fn parse_args(args: &[String]) -> Result<(Target, Scope), ()> {
                 };
                 index += 2;
             }
+            // Only the cycling targets walk a candidate list. `notification`
+            // jumps by recency and the direct targets name their pane
+            // outright, so narrowing their candidates would mean nothing.
+            "--waiting" => {
+                if !matches!(target, Target::Cycle(_)) {
+                    return Err(());
+                }
+                candidates = Candidates::Waiting;
+                index += 1;
+            }
             _ => return Err(()),
         }
     }
 
-    Ok((target, scope))
+    Ok((target, scope, candidates))
 }
 
 fn active_pane_id() -> Option<String> {
@@ -364,7 +400,7 @@ fn active_pane_id() -> Option<String> {
 }
 
 pub fn cmd_focus(args: &[String]) -> i32 {
-    let (target, scope) = match parse_args(args) {
+    let (target, scope, candidates) = match parse_args(args) {
         Ok(parsed) => parsed,
         Err(()) => {
             usage();
@@ -395,8 +431,9 @@ pub fn cmd_focus(args: &[String]) -> i32 {
                 active_session.as_deref(),
                 direction,
                 scope,
+                candidates,
             ) else {
-                crate::tmux::show_message(no_target_message(scope));
+                crate::tmux::show_message(no_target_message(scope, candidates));
                 return 0;
             };
 
@@ -476,7 +513,14 @@ mod tests {
         )];
 
         assert_eq!(
-            select_target_pane(&sessions, "%1", Some("one"), Direction::Next, Scope::All),
+            select_target_pane(
+                &sessions,
+                "%1",
+                Some("one"),
+                Direction::Next,
+                Scope::All,
+                Candidates::All
+            ),
             Some("%3".into())
         );
     }
@@ -493,7 +537,14 @@ mod tests {
         )];
 
         assert_eq!(
-            select_target_pane(&sessions, "%1", Some("one"), Direction::Next, Scope::All),
+            select_target_pane(
+                &sessions,
+                "%1",
+                Some("one"),
+                Direction::Next,
+                Scope::All,
+                Candidates::All
+            ),
             Some("%2".into())
         );
     }
@@ -506,7 +557,14 @@ mod tests {
         ];
 
         assert_eq!(
-            select_target_pane(&sessions, "%1", Some("one"), Direction::Prev, Scope::All),
+            select_target_pane(
+                &sessions,
+                "%1",
+                Some("one"),
+                Direction::Prev,
+                Scope::All,
+                Candidates::All
+            ),
             Some("%2".into())
         );
     }
@@ -530,7 +588,8 @@ mod tests {
                 "%2",
                 Some("two"),
                 Direction::Next,
-                Scope::Session
+                Scope::Session,
+                Candidates::All
             ),
             Some("%3".into())
         );
@@ -553,7 +612,8 @@ mod tests {
                 "%1",
                 Some("one"),
                 Direction::Next,
-                Scope::Session
+                Scope::Session,
+                Candidates::All
             ),
             Some("%2".into())
         );
@@ -568,7 +628,14 @@ mod tests {
 
         for direction in [Direction::Next, Direction::Prev] {
             assert_eq!(
-                select_target_pane(&sessions, "%9", Some("one"), direction, Scope::All),
+                select_target_pane(
+                    &sessions,
+                    "%9",
+                    Some("one"),
+                    direction,
+                    Scope::All,
+                    Candidates::All
+                ),
                 Some("%1".into()),
                 "{direction:?} should jump to the only agent pane"
             );
@@ -588,7 +655,8 @@ mod tests {
                 "%9",
                 Some("two"),
                 Direction::Next,
-                Scope::Session
+                Scope::Session,
+                Candidates::All
             ),
             Some("%2".into())
         );
@@ -602,7 +670,14 @@ mod tests {
         )];
 
         assert_eq!(
-            select_target_pane(&sessions, "%9", None, Direction::Next, Scope::Session),
+            select_target_pane(
+                &sessions,
+                "%9",
+                None,
+                Direction::Next,
+                Scope::Session,
+                Candidates::All
+            ),
             None
         );
     }
@@ -618,7 +693,14 @@ mod tests {
         )];
 
         assert_eq!(
-            select_target_pane(&sessions, "%1", Some("one"), Direction::Next, Scope::All),
+            select_target_pane(
+                &sessions,
+                "%1",
+                Some("one"),
+                Direction::Next,
+                Scope::All,
+                Candidates::All
+            ),
             Some("%2".into())
         );
     }
@@ -637,7 +719,7 @@ mod tests {
         )];
 
         assert_eq!(
-            eligible_pane_ids(&sessions, Some("one"), Scope::All),
+            eligible_pane_ids(&sessions, Some("one"), Scope::All, Candidates::All),
             vec!["%1", "%2", "%3", "%4", "%5"]
         );
     }
@@ -645,11 +727,11 @@ mod tests {
     #[test]
     fn no_target_message_names_the_scope() {
         assert_eq!(
-            no_target_message(Scope::All),
+            no_target_message(Scope::All, Candidates::All),
             "agent-sidebar: no other agent pane to focus"
         );
         assert_eq!(
-            no_target_message(Scope::Session),
+            no_target_message(Scope::Session, Candidates::All),
             "agent-sidebar: no other agent pane in this session"
         );
     }
@@ -662,7 +744,14 @@ mod tests {
         )];
 
         assert_eq!(
-            select_target_pane(&sessions, "%1", Some("one"), Direction::Next, Scope::All),
+            select_target_pane(
+                &sessions,
+                "%1",
+                Some("one"),
+                Direction::Next,
+                Scope::All,
+                Candidates::All
+            ),
             None
         );
     }
@@ -671,7 +760,7 @@ mod tests {
     fn parse_args_defaults_to_all_scope() {
         assert_eq!(
             parse_args(&["next".into()]),
-            Ok((Target::Cycle(Direction::Next), Scope::All))
+            Ok((Target::Cycle(Direction::Next), Scope::All, Candidates::All))
         );
     }
 
@@ -679,7 +768,11 @@ mod tests {
     fn parse_args_accepts_session_scope_and_previous_alias() {
         assert_eq!(
             parse_args(&["previous".into(), "--scope".into(), "session".into()]),
-            Ok((Target::Cycle(Direction::Prev), Scope::Session))
+            Ok((
+                Target::Cycle(Direction::Prev),
+                Scope::Session,
+                Candidates::All
+            ))
         );
     }
 
@@ -695,7 +788,7 @@ mod tests {
     fn parse_args_accepts_numeric_index() {
         assert_eq!(
             parse_args(&["3".into()]),
-            Ok((Target::Index(3), Scope::All))
+            Ok((Target::Index(3), Scope::All, Candidates::All))
         );
     }
 
@@ -716,7 +809,7 @@ mod tests {
     fn parse_args_accepts_pane_id_target() {
         assert_eq!(
             parse_args(&["%34".into()]),
-            Ok((Target::PaneId("%34".into()), Scope::All))
+            Ok((Target::PaneId("%34".into()), Scope::All, Candidates::All))
         );
     }
 
@@ -794,11 +887,11 @@ mod tests {
     fn parse_args_accepts_the_notification_target() {
         assert_eq!(
             parse_args(&["notification".into()]),
-            Ok((Target::Notification, Scope::All))
+            Ok((Target::Notification, Scope::All, Candidates::All))
         );
         assert_eq!(
             parse_args(&["notification".into(), "--scope".into(), "session".into()]),
-            Ok((Target::Notification, Scope::Session))
+            Ok((Target::Notification, Scope::Session, Candidates::All))
         );
     }
 
@@ -975,7 +1068,7 @@ mod tests {
         ];
         // %2 in session "two" is newer, but the cursor is in session "one".
         let stamps = vec![("%1".to_string(), 100), ("%2".to_string(), 999)];
-        let eligible = eligible_pane_ids(&sessions, Some("one"), Scope::Session);
+        let eligible = eligible_pane_ids(&sessions, Some("one"), Scope::Session, Candidates::All);
 
         assert_eq!(
             select_last_notified_pane(&eligible, &stamps),
@@ -1029,5 +1122,230 @@ mod tests {
             assert!(format.starts_with("#{pane_id}|#{@pane_os_notify_"));
             assert!(!format.contains("q:"));
         }
+    }
+
+    // ─── waiting-only cycling ────────────────────────────────────────
+
+    fn waiting_pane(id: &str, session_name: &str) -> PaneInfo {
+        pane(id, false, PaneStatus::Waiting, session_name)
+    }
+
+    #[test]
+    fn waiting_cycle_skips_panes_that_are_not_waiting() {
+        let sessions = vec![session(
+            "one",
+            vec![
+                waiting_pane("%1", "one"),
+                pane("%2", false, PaneStatus::Running, "one"),
+                waiting_pane("%3", "one"),
+            ],
+        )];
+        assert_eq!(
+            select_target_pane(
+                &sessions,
+                "%1",
+                Some("one"),
+                Direction::Next,
+                Scope::All,
+                Candidates::Waiting
+            ),
+            Some("%3".into())
+        );
+    }
+
+    #[test]
+    fn waiting_cycle_wraps_around_to_the_first_waiting_pane() {
+        let sessions = vec![session(
+            "one",
+            vec![
+                waiting_pane("%1", "one"),
+                pane("%2", false, PaneStatus::Running, "one"),
+                waiting_pane("%3", "one"),
+            ],
+        )];
+        assert_eq!(
+            select_target_pane(
+                &sessions,
+                "%3",
+                Some("one"),
+                Direction::Next,
+                Scope::All,
+                Candidates::Waiting
+            ),
+            Some("%1".into())
+        );
+    }
+
+    #[test]
+    fn waiting_cycle_enters_the_list_when_the_cursor_pane_is_not_waiting() {
+        // The cursor sits on a running agent, which is outside the waiting
+        // candidate list. Each direction enters from its own end.
+        let sessions = vec![session(
+            "one",
+            vec![
+                waiting_pane("%1", "one"),
+                pane("%2", true, PaneStatus::Running, "one"),
+                waiting_pane("%3", "one"),
+            ],
+        )];
+        assert_eq!(
+            select_target_pane(
+                &sessions,
+                "%2",
+                Some("one"),
+                Direction::Next,
+                Scope::All,
+                Candidates::Waiting
+            ),
+            Some("%1".into())
+        );
+        assert_eq!(
+            select_target_pane(
+                &sessions,
+                "%2",
+                Some("one"),
+                Direction::Prev,
+                Scope::All,
+                Candidates::Waiting
+            ),
+            Some("%3".into())
+        );
+    }
+
+    #[test]
+    fn waiting_cycle_yields_nothing_when_no_agent_is_waiting() {
+        let sessions = vec![session(
+            "one",
+            vec![
+                pane("%1", true, PaneStatus::Running, "one"),
+                pane("%2", false, PaneStatus::Idle, "one"),
+            ],
+        )];
+        assert_eq!(
+            select_target_pane(
+                &sessions,
+                "%1",
+                Some("one"),
+                Direction::Next,
+                Scope::All,
+                Candidates::Waiting
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn waiting_cycle_includes_idle_panes_blocked_on_an_idle_prompt() {
+        // `idle_prompt` notifications leave the pane in `idle` without
+        // raising `@pane_attention`, yet the sidebar shows them as waiting
+        // for input — so cycling must reach them too.
+        let mut idle_prompt = pane("%2", false, PaneStatus::Idle, "one");
+        idle_prompt.wait_reason = "idle_prompt".into();
+        let sessions = vec![session(
+            "one",
+            vec![pane("%1", true, PaneStatus::Running, "one"), idle_prompt],
+        )];
+        assert_eq!(
+            select_target_pane(
+                &sessions,
+                "%1",
+                Some("one"),
+                Direction::Next,
+                Scope::All,
+                Candidates::Waiting
+            ),
+            Some("%2".into())
+        );
+    }
+
+    #[test]
+    fn waiting_cycle_honours_session_scope() {
+        let sessions = vec![
+            session("one", vec![pane("%1", true, PaneStatus::Running, "one")]),
+            session("two", vec![waiting_pane("%2", "two")]),
+        ];
+        assert_eq!(
+            select_target_pane(
+                &sessions,
+                "%1",
+                Some("one"),
+                Direction::Next,
+                Scope::Session,
+                Candidates::Waiting
+            ),
+            None
+        );
+        assert_eq!(
+            select_target_pane(
+                &sessions,
+                "%1",
+                Some("one"),
+                Direction::Next,
+                Scope::All,
+                Candidates::Waiting
+            ),
+            Some("%2".into())
+        );
+    }
+
+    #[test]
+    fn no_target_message_names_the_waiting_candidates() {
+        assert_eq!(
+            no_target_message(Scope::All, Candidates::Waiting),
+            "agent-sidebar: no agent waiting for input"
+        );
+        assert_eq!(
+            no_target_message(Scope::Session, Candidates::Waiting),
+            "agent-sidebar: no agent waiting for input in this session"
+        );
+    }
+
+    #[test]
+    fn parse_args_accepts_waiting_flag() {
+        assert_eq!(
+            parse_args(&["next".into(), "--waiting".into()]),
+            Ok((
+                Target::Cycle(Direction::Next),
+                Scope::All,
+                Candidates::Waiting
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_args_accepts_waiting_flag_with_session_scope() {
+        assert_eq!(
+            parse_args(&[
+                "prev".into(),
+                "--waiting".into(),
+                "--scope".into(),
+                "session".into()
+            ]),
+            Ok((
+                Target::Cycle(Direction::Prev),
+                Scope::Session,
+                Candidates::Waiting
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_waiting_flag_with_numeric_index() {
+        assert_eq!(parse_args(&["2".into(), "--waiting".into()]), Err(()));
+    }
+
+    #[test]
+    fn parse_args_rejects_waiting_flag_with_pane_id() {
+        assert_eq!(parse_args(&["%34".into(), "--waiting".into()]), Err(()));
+    }
+
+    #[test]
+    fn parse_args_rejects_waiting_flag_with_notification() {
+        // `notification` jumps by recency, not by walking the candidate
+        // list, so restricting its candidates would be meaningless.
+        assert_eq!(
+            parse_args(&["notification".into(), "--waiting".into()]),
+            Err(())
+        );
     }
 }

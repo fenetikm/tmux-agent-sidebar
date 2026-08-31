@@ -41,6 +41,21 @@ pub struct PaneInfo {
     pub bg_shell_cmd: Option<String>,
 }
 
+impl PaneInfo {
+    /// Whether the pane is waiting on the user. The raw `@pane_attention`
+    /// flag alone is not enough: `idle_prompt` notifications are meta-only,
+    /// recording the wait reason without raising the flag or moving the pane
+    /// out of `idle` (see `cli::hook::handlers::on_notification`), yet the
+    /// sidebar renders those rows as "waiting for input". The `idle_prompt`
+    /// reason is only honoured while the pane is idle, because a pane that
+    /// went back to work keeps the stale reason until its next wait.
+    pub fn needs_user_attention(&self) -> bool {
+        self.attention
+            || matches!(self.status, PaneStatus::Waiting)
+            || (matches!(self.status, PaneStatus::Idle) && self.wait_reason == "idle_prompt")
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct WorktreeMetadata {
     pub name: String,
@@ -184,6 +199,71 @@ impl PaneStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_pane(status: PaneStatus) -> PaneInfo {
+        PaneInfo {
+            pane_id: "%1".into(),
+            pane_active: false,
+            status,
+            attention: false,
+            agent: AgentType::Claude,
+            path: "/tmp".into(),
+            current_command: String::new(),
+            prompt: String::new(),
+            prompt_is_response: false,
+            started_at: None,
+            wait_reason: String::new(),
+            permission_mode: PermissionMode::Default,
+            subagents: vec![],
+            pane_pid: None,
+            worktree: WorktreeMetadata::default(),
+            session_id: None,
+            session_name: String::new(),
+            tmux_session: String::new(),
+            window_id: String::new(),
+            sidebar_spawned: false,
+            bg_shell_cmd: None,
+        }
+    }
+
+    #[test]
+    fn needs_user_attention_for_waiting_status() {
+        assert!(test_pane(PaneStatus::Waiting).needs_user_attention());
+    }
+
+    #[test]
+    fn needs_user_attention_for_raised_attention_flag() {
+        let mut pane = test_pane(PaneStatus::Running);
+        pane.attention = true;
+        assert!(pane.needs_user_attention());
+    }
+
+    #[test]
+    fn needs_user_attention_for_idle_pane_with_idle_prompt_reason() {
+        // `idle_prompt` notifications are meta-only: they record the wait
+        // reason without raising `@pane_attention` or leaving `idle`.
+        let mut pane = test_pane(PaneStatus::Idle);
+        pane.wait_reason = "idle_prompt".into();
+        assert!(pane.needs_user_attention());
+    }
+
+    #[test]
+    fn needs_user_attention_ignores_stale_idle_prompt_on_running_pane() {
+        // `@pane_wait_reason` is not cleared when a pane resumes work.
+        let mut pane = test_pane(PaneStatus::Running);
+        pane.wait_reason = "idle_prompt".into();
+        assert!(!pane.needs_user_attention());
+    }
+
+    #[test]
+    fn needs_user_attention_false_for_plain_idle_pane() {
+        assert!(!test_pane(PaneStatus::Idle).needs_user_attention());
+    }
+
+    #[test]
+    fn needs_user_attention_false_for_running_pane() {
+        assert!(!test_pane(PaneStatus::Running).needs_user_attention());
+    }
 
     #[test]
     fn pane_status_from_str_all_variants() {

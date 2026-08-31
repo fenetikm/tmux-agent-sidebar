@@ -50,7 +50,7 @@ tmux show -t "$pane_id" -pv @pane_agent
 Use `focus` from tmux bindings or scripts to jump between agent panes:
 
 ```bash
-tmux-agent-sidebar focus <next|prev|notification|<N>> [--scope <all|session>]
+tmux-agent-sidebar focus <next|prev|notification|<N>> [--waiting] [--scope <all|session>]
 ```
 
 Examples:
@@ -62,6 +62,8 @@ bind-key M-n run-shell '"#{@agent_sidebar_bin}" focus next --scope session'
 bind-key M-p run-shell '"#{@agent_sidebar_bin}" focus prev --scope session'
 bind-key M-l run-shell '"#{@agent_sidebar_bin}" focus notification'
 bind-key M-L run-shell '"#{@agent_sidebar_bin}" focus notification --scope session'
+bind-key C-w run-shell '"#{@agent_sidebar_bin}" focus next --waiting'
+bind-key C-W run-shell '"#{@agent_sidebar_bin}" focus prev --waiting'
 ```
 
 The plugin sets `@agent_sidebar_bin` to the absolute path of the binary it loaded, so bindings resolve it at press time and do not depend on the binary being on your `PATH`. Define these after the plugin is loaded in your `tmux.conf`.
@@ -71,6 +73,21 @@ The plugin sets `@agent_sidebar_bin` to the absolute path of the binary it loade
 The command wraps at list boundaries. From a pane that isn't an agent pane — a shell, an editor, the sidebar — `next` enters the list at the first agent pane and `prev` at the last, so a single agent pane is still reachable in one press.
 
 When the jump would land on the pane you are already in, the command writes a short note to the tmux status line and exits `0`; when it is not running inside tmux at all it prints an error to stderr and exits non-zero.
+
+### Cycling only the waiting agents
+
+`--waiting` narrows `next` and `prev` to the agents blocked on you, so one key walks the panes that actually need an answer instead of stepping through agents that are still working.
+
+```tmux
+bind-key C-w run-shell '"#{@agent_sidebar_bin}" focus next --waiting'
+bind-key C-W run-shell '"#{@agent_sidebar_bin}" focus prev --waiting --scope session'
+```
+
+"Waiting" is the same condition `list --json` reports as `attention` and the sidebar renders as *waiting for input*: the `@pane_attention` flag is raised, or the status is `waiting`, or the pane is idle with a `@pane_wait_reason` of `idle_prompt`. That last case matters — an idle prompt records its wait reason without raising the attention flag, so a plain status check would skip it.
+
+`--waiting` combines with `--scope`, and everything else about cycling is unchanged: repo-group order, wrap-around, and entering the list from the appropriate end when you press the key from a non-agent pane. It is only valid with `next` and `prev` — `notification` jumps by recency and `<N>` / `%pane_id` name their pane outright, so the flag is rejected there.
+
+When no agent is waiting, the command writes `no agent waiting for input` to the tmux status line and exits `0`.
 
 ### Focus by index
 

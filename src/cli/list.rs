@@ -216,26 +216,13 @@ fn print_plain(entries: &[PaneEntry]) {
     }
 }
 
-/// Whether the pane is waiting on the user. The raw `@pane_attention` flag
-/// alone is not enough: `idle_prompt` notifications are meta-only, recording
-/// the wait reason without raising the flag or moving the pane out of `idle`
-/// (see `cli::hook::handlers::on_notification`), yet the sidebar renders
-/// those rows as "waiting for input". The `idle_prompt` reason is only
-/// honoured while the pane is idle, because a pane that went back to work
-/// keeps the stale reason until its next wait.
-fn needs_user_attention(pane: &PaneInfo) -> bool {
-    pane.attention
-        || matches!(pane.status, PaneStatus::Waiting)
-        || (matches!(pane.status, PaneStatus::Idle) && pane.wait_reason == "idle_prompt")
-}
-
 fn pane_json(entry: &PaneEntry) -> serde_json::Value {
     serde_json::json!({
         "index": entry.index,
         "pane_id": entry.pane.pane_id,
         "agent": entry.pane.agent.label(),
         "status": status_label(&entry.pane.status),
-        "attention": needs_user_attention(&entry.pane),
+        "attention": entry.pane.needs_user_attention(),
         "wait_reason": entry.pane.wait_reason,
         "session_name": entry.pane.session_name,
         "tmux_session": entry.pane.tmux_session,

@@ -31,6 +31,8 @@ bind-key M-n run-shell '"#{@agent_sidebar_bin}" focus next --scope session'
 bind-key M-p run-shell '"#{@agent_sidebar_bin}" focus prev --scope session'
 bind-key M-l run-shell '"#{@agent_sidebar_bin}" focus notification'
 bind-key M-L run-shell '"#{@agent_sidebar_bin}" focus notification --scope session'
+bind-key C-w run-shell '"#{@agent_sidebar_bin}" focus next --waiting'
+bind-key C-W run-shell '"#{@agent_sidebar_bin}" focus prev --waiting'
 bind 1 run-shell '"#{@agent_sidebar_bin}" focus 1'
 bind 2 run-shell '"#{@agent_sidebar_bin}" focus 2'
 bind 3 run-shell '"#{@agent_sidebar_bin}" focus 3'
@@ -41,6 +43,8 @@ bind 3 run-shell '"#{@agent_sidebar_bin}" focus 3'
 Numeric bindings (`focus 1`, `focus 2`, …) jump to the corresponding visible agent row in the sidebar list. They honour `@sidebar_filter` and `@sidebar_repo_filter`, so the mapping shifts when filters change.
 
 `--scope all` navigates agent panes across every tmux session. `--scope session` limits navigation to the session containing the currently active pane. Every agent pane is eligible regardless of status, so idle and waiting agents are included. Navigation wraps at the ends of the eligible list, and pressing a key from a non-agent pane enters the list from the corresponding end.
+
+`--waiting` narrows `next` and `prev` to the agents blocked on you — the same panes the sidebar shows as *waiting for input*, including idle panes held by an `idle_prompt`. It combines with `--scope`, and reports `no agent waiting for input` on the status line when nothing is blocked.
 
 `focus notification` is a third target alongside `next` and `prev`. Instead of walking the list, it jumps straight to the pane whose desktop notification fired most recently — useful as a "take me to whatever just pinged me" key. It honours `--scope session` the same way `next` and `prev` do.
 
