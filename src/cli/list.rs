@@ -216,32 +216,49 @@ fn print_plain(entries: &[PaneEntry]) {
     }
 }
 
+/// Whether the pane is waiting on the user. The raw `@pane_attention` flag
+/// alone is not enough: `idle_prompt` notifications are meta-only, recording
+/// the wait reason without raising the flag or moving the pane out of `idle`
+/// (see `cli::hook::handlers::on_notification`), yet the sidebar renders
+/// those rows as "waiting for input". The `idle_prompt` reason is only
+/// honoured while the pane is idle, because a pane that went back to work
+/// keeps the stale reason until its next wait.
+fn needs_user_attention(pane: &PaneInfo) -> bool {
+    pane.attention
+        || matches!(pane.status, PaneStatus::Waiting)
+        || (matches!(pane.status, PaneStatus::Idle) && pane.wait_reason == "idle_prompt")
+}
+
+fn pane_json(entry: &PaneEntry) -> serde_json::Value {
+    serde_json::json!({
+        "index": entry.index,
+        "pane_id": entry.pane.pane_id,
+        "agent": entry.pane.agent.label(),
+        "status": status_label(&entry.pane.status),
+        "attention": needs_user_attention(&entry.pane),
+        "wait_reason": entry.pane.wait_reason,
+        "session_name": entry.pane.session_name,
+        "tmux_session": entry.pane.tmux_session,
+        "window_id": entry.pane.window_id,
+        "repo": entry.repo,
+        "branch": entry.git.branch.clone().unwrap_or_default(),
+        "path": entry.pane.path,
+        "prompt": entry.pane.prompt,
+        "worktree": entry.pane.worktree.name,
+        "active": entry.pane.pane_active,
+        "label": build_label(entry),
+    })
+}
+
+fn json_payload(entries: &[PaneEntry]) -> serde_json::Value {
+    let panes: Vec<serde_json::Value> = entries.iter().map(pane_json).collect();
+    serde_json::json!({ "panes": panes })
+}
+
 fn print_json(entries: &[PaneEntry]) {
-    let panes: Vec<serde_json::Value> = entries
-        .iter()
-        .map(|entry| {
-            serde_json::json!({
-                "index": entry.index,
-                "pane_id": entry.pane.pane_id,
-                "agent": entry.pane.agent.label(),
-                "status": status_label(&entry.pane.status),
-                "attention": entry.pane.attention,
-                "session_name": entry.pane.session_name,
-                "tmux_session": entry.pane.tmux_session,
-                "window_id": entry.pane.window_id,
-                "repo": entry.repo,
-                "branch": entry.git.branch.clone().unwrap_or_default(),
-                "path": entry.pane.path,
-                "prompt": entry.pane.prompt,
-                "worktree": entry.pane.worktree.name,
-                "active": entry.pane.pane_active,
-                "label": build_label(entry),
-            })
-        })
-        .collect();
     println!(
         "{}",
-        serde_json::to_string_pretty(&serde_json::json!({ "panes": panes })).unwrap_or_default()
+        serde_json::to_string_pretty(&json_payload(entries)).unwrap_or_default()
     );
 }
 
@@ -366,6 +383,65 @@ mod tests {
         assert!(label.contains("my-repo"));
         assert!(label.contains("my-task"));
         assert!(label.contains("fix tests"));
+    }
+
+    #[test]
+    fn json_marks_idle_prompt_pane_as_needing_attention() {
+        // `idle_prompt` notifications are meta-only: they record the wait
+        // reason without raising `@pane_attention`, so the raw flag alone
+        // hides a pane the sidebar renders as "waiting for input".
+        let mut waiting = pane("%7", PaneStatus::Idle, "task");
+        waiting.wait_reason = "idle_prompt".into();
+        let entry = PaneEntry {
+            index: 1,
+            pane: waiting,
+            git: PaneGitInfo::default(),
+            repo: "repo".into(),
+        };
+        let value = json_payload(&[entry]);
+        assert_eq!(value["panes"][0]["attention"], true);
+        assert_eq!(value["panes"][0]["wait_reason"], "idle_prompt");
+    }
+
+    #[test]
+    fn json_ignores_stale_idle_prompt_on_running_pane() {
+        // `@pane_wait_reason` is not cleared when a pane resumes work, so a
+        // running pane can still carry `idle_prompt` from its last wait.
+        let mut running = pane("%10", PaneStatus::Running, "task");
+        running.wait_reason = "idle_prompt".into();
+        let entry = PaneEntry {
+            index: 1,
+            pane: running,
+            git: PaneGitInfo::default(),
+            repo: "repo".into(),
+        };
+        let value = json_payload(&[entry]);
+        assert_eq!(value["panes"][0]["attention"], false);
+    }
+
+    #[test]
+    fn json_leaves_plain_idle_pane_without_attention() {
+        let entry = PaneEntry {
+            index: 1,
+            pane: pane("%8", PaneStatus::Idle, "task"),
+            git: PaneGitInfo::default(),
+            repo: "repo".into(),
+        };
+        let value = json_payload(&[entry]);
+        assert_eq!(value["panes"][0]["attention"], false);
+        assert_eq!(value["panes"][0]["wait_reason"], "");
+    }
+
+    #[test]
+    fn json_marks_waiting_pane_as_needing_attention() {
+        let entry = PaneEntry {
+            index: 1,
+            pane: pane("%9", PaneStatus::Waiting, "task"),
+            git: PaneGitInfo::default(),
+            repo: "repo".into(),
+        };
+        let value = json_payload(&[entry]);
+        assert_eq!(value["panes"][0]["attention"], true);
     }
 
     #[test]
