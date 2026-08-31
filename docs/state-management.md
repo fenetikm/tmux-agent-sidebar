@@ -99,7 +99,7 @@ Per-pane file-based state:
 | `pet_bob_timer` | Every 200ms (animation) | Idle bob motion timer |
 | `pet_enabled` | Once at startup | Whether the pet is drawn and ticked (from `@sidebar_pet`) |
 | `compact_rows` | Once at startup, then on `c` | Whether agent entries render as two fixed lines (from `@sidebar_compact`, written back on toggle) |
-| `sort_mode` | Every layout-option sync | How the agent list is grouped: `SortMode::Repository` or `SortMode::Session` (from `@sidebar_sorting`, never written back) |
+| `sort_mode` | Startup, then on sidebar window re-focus | How the agent list is grouped: `SortMode::Repository` or `SortMode::Session` (from `@sidebar_sorting`, never written back) |
 | `spinner_frame` | Every 200ms (animation) | Spinner animation frame counter |
 | `icons` | Once at startup | `StatusIcons` theme (overridable via tmux options) |
 | `tmux_pane` | Once at startup | This sidebar's own tmux pane ID |
@@ -107,6 +107,18 @@ Per-pane file-based state:
 | `version_notice` | Once at startup (bg fetch) | GitHub release update notice, `None` when up-to-date |
 | `sessions.names` | Every 10s (background thread) | `session_id → session name` map; scanned by `session_poll_loop` in `app/workers.rs` so the TUI thread never blocks on filesystem I/O |
 | `sessions.dirty` | On session map refresh / application tick | Marks the session map as changed so the per-pane session label walk only runs when needed |
+
+**Known caveat — transient `sort_mode` divergence between the TUI and the CLI.**
+`src/cli/focus.rs` and `src/cli/list.rs` call `crate::ui::sort_mode_from_tmux()`
+directly, reading the tmux option fresh on every invocation, while the sidebar
+TUI only re-reads `sort_mode` at startup or on window re-focus (see the
+`sort_mode` row above). Between running `tmux set -g @sidebar_sorting session`
+and the sidebar's next resync, `focus next` walks session order while the
+visible list is still shown in repository order. This is transient and
+self-heals on the sidebar's next resync, and it never occurs in the intended
+`.tmux.conf` workflow, where both are primed at startup and stay in sync —
+setting `@sidebar_sorting` there instead of live avoids the divergence
+entirely.
 
 ---
 
@@ -195,7 +207,6 @@ TUI main loop (app::run in app.rs; submodules app/{setup,workers,input,render})
   → refresh() every 1s
     → query_sessions() (tmux.rs)     ← reads @pane_* via `tmux list-panes -a`
     → group_panes() (group.rs)
-    → sessions.refresh_rows()        ← derives top-panel session rows from repo_groups
     → rebuild_row_targets()          ← applies GlobalState filters
     → refresh_activity_data()        ← reads /tmp activity logs
     → refresh_task_progress()        ← updates PaneRuntimeState.task_progress

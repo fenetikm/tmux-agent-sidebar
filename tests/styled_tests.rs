@@ -395,6 +395,42 @@ fn snapshot_custom_theme_colors() {
 }
 
 #[test]
+fn snapshot_session_header_accent_promotion_styled() {
+    let mut personal_pane = make_pane(AgentType::Codex, PaneStatus::Idle);
+    personal_pane.pane_id = "%1".into();
+    personal_pane.tmux_session = "personal".into();
+    let mut work_pane = make_pane(AgentType::Claude, PaneStatus::Idle);
+    work_pane.pane_id = "%2".into();
+    work_pane.tmux_session = "work".into();
+
+    let mut state = make_state(vec![]);
+    state.repo_groups = vec![
+        make_repo_group_in_session("project", "personal", vec![personal_pane]),
+        make_repo_group_in_session("project", "work", vec![work_pane]),
+    ];
+    // The focused pane lives in the "work" session, so only the [work]
+    // header should be promoted to theme.accent; [personal] must stay
+    // theme.text_active.
+    state.focus_state.focused_pane_id = Some("%2".into());
+    state.bottom_panel_height = 0;
+    state.rebuild_row_targets();
+
+    insta::assert_snapshot!(render_to_styled_string(&mut state, 28, 25), @"
+     ≡[fg:111]2[fg:255]  ●[fg:245]0[fg:245]  ◎[fg:245]0[fg:245]  ◐[fg:245]0[fg:245]  ○[fg:245]2[fg:255]  ✕[fg:245]0[fg:245]
+    ⓘ[fg:221]                        —[fg:252] ▾[fg:252]
+    [[fg:255]p[fg:255]e[fg:255]r[fg:255]s[fg:255]o[fg:255]n[fg:255]a[fg:255]l[fg:255]][fg:255]
+    p[fg:255]r[fg:255]o[fg:255]j[fg:255]e[fg:255]c[fg:255]t[fg:255]
+     [bg:239] [bg:239]○[fg:110,bg:239] [fg:141,bg:239]c[fg:141,bg:239]o[fg:141,bg:239]d[fg:141,bg:239]e[fg:141,bg:239]x[fg:141,bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239] [bg:239]
+     [bg:239]  [fg:244] [fg:244]W[fg:244]a[fg:244]i[fg:244]t[fg:244]i[fg:244]n[fg:244]g[fg:244] [fg:244]f[fg:244]o[fg:244]r[fg:244] [fg:244]p[fg:244]r[fg:244]o[fg:244]m[fg:244]p[fg:244]t[fg:244]…[fg:244]
+
+    [[fg:153]w[fg:153]o[fg:153]r[fg:153]k[fg:153]][fg:153]
+    p[fg:153]r[fg:153]o[fg:153]j[fg:153]e[fg:153]c[fg:153]t[fg:153]
+    ┃[fg:153] ○[fg:110] [fg:174]c[fg:174]l[fg:174]a[fg:174]u[fg:174]d[fg:174]e[fg:174]
+    ┃[fg:153]  [fg:255] [fg:255]W[fg:255]a[fg:255]i[fg:255]t[fg:255]i[fg:255]n[fg:255]g[fg:255] [fg:255]f[fg:255]o[fg:255]r[fg:255] [fg:255]p[fg:255]r[fg:255]o[fg:255]m[fg:255]p[fg:255]t[fg:255]…[fg:255]
+    ");
+}
+
+#[test]
 fn test_theme_default_matches_shell_colors() {
     use ratatui::style::Color;
     use tmux_agent_sidebar::ui::colors::ColorTheme;

@@ -459,7 +459,7 @@ mod tests {
     }
 
     fn pane_in_tmux_session(id: &str, path: &str, tmux_session: &str) -> PaneInfo {
-        let mut pane = pane_at_path(id, path, tmux_session);
+        let mut pane = pane_at_path(id, path, "");
         pane.tmux_session = tmux_session.into();
         pane
     }

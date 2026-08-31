@@ -18,6 +18,7 @@ Most options must be set **before** loading the plugin in your `tmux.conf`. Colo
 | `@sidebar_bottom_height`         | `20`    | Bottom panel height in lines (set `0` to hide)                                          |
 | `@sidebar_show_session_names`    | `on`    | Show Claude `/rename` session labels in pane rows. Set `off` to always show the agent label (`claude`, `codex`, `opencode`) |
 | `@sidebar_compact`               | `off`   | Render every agent entry in two lines: status, provider, mode, branch, elapsed on the first; one line of detail on the second. Toggle at runtime with `c` |
+| `@sidebar_sorting`               | `repository` | Group the agent list by `repository` (default) or `session`. `session` groups repos under a `[session name]` header, so a repo open in two sessions appears under each. Any other value falls back to `repository`. Set in `.tmux.conf`. |
 | `@sidebar_auto_create`           | `on`    | Auto-create the sidebar on new windows (set `off` to disable)                           |
 | `@sidebar_auto_create_delay`     | `0`     | Seconds to defer auto-create after a window opens, so a declaratively-built window (e.g. tmuxinator's `select-layout`) finishes before the sidebar pane is injected; accepts fractional seconds. `0` keeps the create synchronous |
 | `@sidebar_notifications`         | `on`    | Master switch for desktop notifications                                                 |

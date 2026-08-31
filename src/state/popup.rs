@@ -251,13 +251,15 @@ impl AppState {
         let name = group.name.clone();
         let session = group.session.clone();
         // Anchor the popup directly below the repo header row so it
-        // matches what the mouse `+` click flow does. With one repo under
-        // two sessions, the name alone is ambiguous — match the pair.
+        // matches what the mouse `+` click flow does. Match on repo_root
+        // rather than repo_name: two distinct repos can share a basename
+        // (e.g. `/a/project` and `/b/project`) in the same session, and
+        // repo_root disambiguates them exactly where the name would collide.
         let anchor = self
             .layout
             .repo_spawn_targets
             .iter()
-            .find(|t| t.repo_name == name && t.session == session)
+            .find(|t| t.repo_root == root && t.session == session)
             .map(|t| t.rect.y);
         self.open_spawn_input_for_repo(name, root, anchor);
     }
@@ -760,6 +762,79 @@ mod tests {
                 Some(5),
                 "the anchor must be the header of the pane's own session"
             ),
+            other => panic!("expected the spawn input popup, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn spawn_anchor_resolves_by_repo_root_when_repo_names_collide() {
+        // Two distinct repos sharing a basename ("project") in the same
+        // session must not collide: the anchor is keyed on repo_root.
+        let mut state = AppState::new("%99".into());
+        let git_a = PaneGitInfo {
+            repo_root: Some("/a/project".into()),
+            branch: None,
+            is_worktree: false,
+            worktree_name: None,
+        };
+        let git_b = PaneGitInfo {
+            repo_root: Some("/b/project".into()),
+            branch: None,
+            is_worktree: false,
+            worktree_name: None,
+        };
+        state.repo_groups = vec![
+            RepoGroup {
+                name: "project".into(),
+                session: None,
+                has_focus: false,
+                panes: vec![(test_pane("%1"), git_a)],
+            },
+            RepoGroup {
+                name: "project".into(),
+                session: None,
+                has_focus: false,
+                panes: vec![(test_pane("%2"), git_b)],
+            },
+        ];
+        state.rebuild_row_targets();
+        state.layout.repo_spawn_targets = vec![
+            RepoSpawnTarget {
+                rect: ratatui::layout::Rect::new(0, 1, 3, 1),
+                repo_name: "project".into(),
+                repo_root: "/a/project".into(),
+                session: None,
+            },
+            RepoSpawnTarget {
+                rect: ratatui::layout::Rect::new(0, 5, 3, 1),
+                repo_name: "project".into(),
+                repo_root: "/b/project".into(),
+                session: None,
+            },
+        ];
+        let row = state
+            .layout
+            .pane_row_targets
+            .iter()
+            .position(|t| t.pane_id == "%2")
+            .expect("%2 is visible");
+        state.global.selected_pane_row = row;
+
+        state.open_spawn_input_from_selection();
+
+        match &state.popup {
+            PopupState::SpawnInput {
+                anchor_y,
+                target_repo_root,
+                ..
+            } => {
+                assert_eq!(
+                    *anchor_y,
+                    Some(5),
+                    "must anchor on repo_root, not the colliding repo_name"
+                );
+                assert_eq!(target_repo_root, "/b/project");
+            }
             other => panic!("expected the spawn input popup, got {other:?}"),
         }
     }

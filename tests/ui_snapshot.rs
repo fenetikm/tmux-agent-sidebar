@@ -2487,6 +2487,11 @@ fn snapshot_session_grouped_agent_list() {
     state.bottom_panel_height = 0;
     state.rebuild_row_targets();
 
+    // `buffer_to_string` (tests/test_helpers.rs) elides any line with no
+    // non-space content, so the blank row separating the [personal] and
+    // [work] blocks is rendered but does not appear below. That separator
+    // is pinned by `collect_emits_one_session_header_per_session_block` in
+    // src/ui/panes/row_collector.rs.
     let output = render_to_string(&mut state, 28, 25);
     insta::assert_snapshot!(output, @"
      ≡2  ●0  ◎0  ◐0  ○2  ✕0

@@ -128,8 +128,12 @@ impl AppState {
     }
 
     /// Return list of repo names for the popup: ["All", repo1, repo2, ...].
-    /// Deduped while preserving first-seen order: in session grouping the
-    /// same repo appears once per session, and the dropdown must list it once.
+    /// Deduped: in session grouping the same repo appears once per session,
+    /// and the dropdown must list it once. The tail (everything after the
+    /// "All" sentinel, which always stays at index 0) is sorted
+    /// case-insensitively so session grouping - whose group order is
+    /// (session, name) rather than alphabetical - still produces an
+    /// alphabetically ordered dropdown, matching repository grouping.
     pub fn repo_names(&self) -> Vec<String> {
         let mut names = vec!["All".to_string()];
         for group in &self.repo_groups {
@@ -137,6 +141,7 @@ impl AppState {
                 names.push(group.name.clone());
             }
         }
+        names[1..].sort_by_key(|name| name.to_lowercase());
         names
     }
 }
@@ -372,5 +377,29 @@ mod tests {
             },
         ];
         assert_eq!(state.repo_names(), vec!["All", "my-app", "other"]);
+    }
+
+    #[test]
+    fn repo_names_sorts_the_tail_case_insensitively_in_session_grouping() {
+        // Session grouping orders groups by (session, name), so a session
+        // named "personal" holding "zzz" is visited before a session named
+        // "work" holding "aaa" - group order alone would produce
+        // ["All", "zzz", "aaa"]. The dropdown must sort the tail instead.
+        let mut state = AppState::new("%0".into());
+        state.repo_groups = vec![
+            RepoGroup {
+                name: "zzz".into(),
+                session: Some("personal".into()),
+                has_focus: false,
+                panes: vec![],
+            },
+            RepoGroup {
+                name: "Aaa".into(),
+                session: Some("work".into()),
+                has_focus: false,
+                panes: vec![],
+            },
+        ];
+        assert_eq!(state.repo_names(), vec!["All", "Aaa", "zzz"]);
     }
 }
