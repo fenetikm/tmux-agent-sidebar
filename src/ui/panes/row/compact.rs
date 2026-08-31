@@ -126,8 +126,13 @@ fn header_line(
 fn body_content(pane: &crate::tmux::PaneInfo, ctx: &RowCtx) -> (String, Color, bool) {
     let theme = ctx.theme;
 
-    if matches!(pane.status, PaneStatus::Waiting | PaneStatus::Error)
-        && !pane.wait_reason.is_empty()
+    // `Idle` is included because informational notifications (`idle_prompt`,
+    // `session_resumed`) record a reason without moving the pane out of idle;
+    // expanded mode renders those above the prompt, so compact must too.
+    if matches!(
+        pane.status,
+        PaneStatus::Waiting | PaneStatus::Error | PaneStatus::Idle
+    ) && !pane.wait_reason.is_empty()
     {
         let color = if matches!(pane.status, PaneStatus::Error) {
             theme.status_error
@@ -305,6 +310,19 @@ mod tests {
         p.wait_reason = "rate_limit".into();
         insta::assert_snapshot!(render(&p, &git("main"), 44), @"✕ ✳ auto main                          3m20s
   rate limit");
+    }
+
+    #[test]
+    fn body_prefers_wait_reason_when_idle() {
+        // `idle_prompt` leaves the pane idle and only records a wait reason,
+        // so compact mode must surface it rather than falling through to the
+        // last response — expanded mode renders the wait reason above the
+        // prompt, and this path is meant to mirror that precedence.
+        let mut p = pane(PaneStatus::Idle);
+        p.wait_reason = "idle_prompt".into();
+        p.prompt = "this prompt must not win".into();
+        insta::assert_snapshot!(render(&p, &git("main"), 44), @"○ ✳ auto main                          3m20s
+  waiting for input");
     }
 
     #[test]
