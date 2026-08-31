@@ -25,6 +25,46 @@ pub(super) fn write_activity_entry(pane: &str, tool_name: &str, label: &str) {
     trim_log_file(&log_path, 200, 210);
 }
 
+/// Path of the per-pane notification diagnostic log. Kept separate from
+/// the activity log so notification bookkeeping never reaches the
+/// Activity tab; nothing in the TUI reads this file.
+pub(in crate::cli::hook) fn notification_log_path(pane: &str) -> std::path::PathBuf {
+    let encoded = pane.replace('%', "_");
+    std::path::PathBuf::from(format!("/tmp/tmux-agent-notifications{encoded}.log"))
+}
+
+/// Record a `Notification` arrival so the set of `notification_type`
+/// values an agent actually emits can be reviewed after the fact.
+/// Claude Code documents twelve of them and the sidebar only interprets a
+/// handful, so this is the evidence for which ones matter in practice.
+pub(in crate::cli::hook) fn log_notification_event(
+    pane: &str,
+    agent: &str,
+    notification_type: &str,
+) {
+    if notification_type.is_empty() {
+        return;
+    }
+    let path = notification_log_path(pane);
+    let line = format!(
+        "{}|{}|{}\n",
+        local_time_hhmm(),
+        sanitize_tmux_value(agent),
+        sanitize_tmux_value(notification_type)
+    );
+
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        let _ = f.write_all(line.as_bytes());
+    }
+
+    trim_log_file(&path, 200, 210);
+}
+
 /// Trim a log file to `keep` lines when it exceeds `threshold` lines.
 pub(super) fn trim_log_file(path: &std::path::Path, keep: usize, threshold: usize) {
     if let Ok(content) = std::fs::read_to_string(path) {
@@ -427,6 +467,50 @@ mod tests {
             tmux::test_mock::get(pane, tmux::PANE_PERMISSION_MODE).as_deref(),
             Some("default"),
             "child EnterPlanMode must not overwrite parent's permission_mode"
+        );
+    }
+
+    // ─── notification log tests ─────────────────────────────────────
+
+    #[test]
+    fn notification_log_path_encodes_pane_id() {
+        let path = notification_log_path("%3");
+        assert_eq!(
+            path,
+            std::path::PathBuf::from("/tmp/tmux-agent-notifications_3.log")
+        );
+    }
+
+    #[test]
+    fn log_notification_event_appends_timestamped_line() {
+        let pane = "%NOTIF_FMT_TEST";
+        let path = notification_log_path(pane);
+        let _ = fs::remove_file(&path);
+
+        log_notification_event(pane, "claude", "idle_prompt");
+        log_notification_event(pane, "codex", "permission_prompt");
+
+        let content = fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].ends_with("|claude|idle_prompt"));
+        assert!(lines[1].ends_with("|codex|permission_prompt"));
+        // Leading field is a HH:MM timestamp.
+        assert_eq!(lines[0].as_bytes()[2], b':');
+        fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn log_notification_event_skips_empty_type() {
+        let pane = "%NOTIF_EMPTY_TEST";
+        let path = notification_log_path(pane);
+        let _ = fs::remove_file(&path);
+
+        log_notification_event(pane, "claude", "");
+
+        assert!(
+            !path.exists(),
+            "an empty notification type carries no signal and should not be logged"
         );
     }
 }

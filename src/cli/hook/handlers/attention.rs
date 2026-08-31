@@ -3,6 +3,7 @@ use crate::desktop_notification;
 use crate::desktop_notification::DesktopNotificationKind;
 use crate::tmux;
 
+use super::super::activity::log_notification_event;
 use super::super::context::{AgentContext, set_agent_meta};
 use super::super::notifications::{
     NotifyLabels, NotifyPayload, notification_body, notification_fingerprint, notify_lifecycle,
@@ -17,7 +18,15 @@ pub(in crate::cli::hook) fn on_notification(
     notifications: &desktop_notification::DesktopNotificationSettings,
 ) -> i32 {
     set_agent_meta(pane, ctx);
+    log_notification_event(pane, ctx.agent, wait_reason);
     if meta_only {
+        // Informational notifications (currently only `idle_prompt`) record
+        // why the pane is sitting there, but must not change status, raise
+        // attention, or fire a desktop notification: the agent is idle
+        // waiting on the user, not blocked on something actionable.
+        if !wait_reason.is_empty() {
+            tmux::set_pane_option(pane, tmux::PANE_WAIT_REASON, wait_reason);
+        }
         return 0;
     }
     let bg_shell_live = !tmux::get_pane_option_value(pane, tmux::PANE_BG_CMD).is_empty();
@@ -117,7 +126,7 @@ mod tests {
     }
 
     #[test]
-    fn on_notification_meta_only_skips_status_and_attention() {
+    fn on_notification_meta_only_writes_wait_reason_without_status_or_attention() {
         let _guard = tmux::test_mock::install();
         let pane = "%NOTIF_META";
         let ctx = AgentContext {
@@ -134,19 +143,77 @@ mod tests {
         on_notification(
             pane,
             &ctx,
-            "permission",
+            "idle_prompt",
             /* meta_only */ true,
             &notifications,
         );
-        // meta_only=true must short-circuit before status/attention/wait_reason writes.
+        // The reason is recorded so the row can say "waiting for input", but
+        // the pane must stay idle and must not demand attention.
+        assert_eq!(
+            tmux::test_mock::get(pane, tmux::PANE_WAIT_REASON).as_deref(),
+            Some("idle_prompt")
+        );
         assert!(!tmux::test_mock::contains(pane, tmux::PANE_STATUS));
         assert!(!tmux::test_mock::contains(pane, tmux::PANE_ATTENTION));
-        assert!(!tmux::test_mock::contains(pane, tmux::PANE_WAIT_REASON));
         // Agent meta should still be applied so the sidebar can render the pane.
         assert_eq!(
             tmux::test_mock::get(pane, tmux::PANE_AGENT).as_deref(),
             Some("claude")
         );
+    }
+
+    #[test]
+    fn on_notification_meta_only_logs_the_notification_type() {
+        let _guard = tmux::test_mock::install();
+        let pane = "%NOTIF_META_LOG";
+        let path = crate::cli::hook::activity::notification_log_path(pane);
+        let _ = std::fs::remove_file(&path);
+        let ctx = AgentContext {
+            agent: "claude",
+            cwd: "/repo",
+            permission_mode: "default",
+            worktree: &None,
+            session_id: &None,
+        };
+        let notifications = desktop_notification::DesktopNotificationSettings {
+            enabled: false,
+            events: Default::default(),
+        };
+        on_notification(pane, &ctx, "idle_prompt", true, &notifications);
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            content.trim_end().ends_with("|claude|idle_prompt"),
+            "unexpected log line: {content:?}"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn on_notification_logs_the_notification_type() {
+        let _guard = tmux::test_mock::install();
+        let pane = "%NOTIF_LOG";
+        let path = crate::cli::hook::activity::notification_log_path(pane);
+        let _ = std::fs::remove_file(&path);
+        let ctx = AgentContext {
+            agent: "claude",
+            cwd: "/repo",
+            permission_mode: "default",
+            worktree: &None,
+            session_id: &None,
+        };
+        let notifications = desktop_notification::DesktopNotificationSettings {
+            enabled: false,
+            events: Default::default(),
+        };
+        on_notification(pane, &ctx, "permission", false, &notifications);
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            content.trim_end().ends_with("|claude|permission"),
+            "unexpected log line: {content:?}"
+        );
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
