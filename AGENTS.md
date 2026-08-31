@@ -18,7 +18,7 @@ CI runs `cargo test`, `cargo clippy`, and `cargo fmt --check` on every push/PR.
 
 **Before creating any git commit**, always run `cargo fmt` first to avoid CI formatting failures. This applies to every commit, not just the final one.
 
-After implementation is complete, run `cargo build --release`. The plugin directory is usually a symlink to this repo, so the binary is picked up automatically; only a worktree build needs a manual copy (see "Debugging" section below).
+After implementation is complete, run `cargo build --release` and then make sure that build is the one tmux actually runs — a release build alone does not always reach it (see "Debugging" section below).
 
 ## Architecture
 
@@ -76,10 +76,25 @@ Tests are in `/tests/` using Ratatui's `TestBackend` for UI rendering assertions
 
 ## Debugging (Local tmux Plugin)
 
-`~/.tmux/plugins/tmux-agent-sidebar` is typically a symlink to this repository, so `cargo build --release` alone updates the binary tmux loads. Just restart the sidebar (toggle off → on via the tmux keybinding) to pick up the new build.
+`tmux-agent-sidebar.tmux` picks the binary in a fixed order and writes the winner to `@agent_sidebar_bin`:
+
+1. `$PLUGIN_DIR/bin/tmux-agent-sidebar`
+2. `$PLUGIN_DIR/target/release/tmux-agent-sidebar`
+3. `tmux-agent-sidebar` on `PATH`
+
+`hook.sh` uses the same order, with `~/.tmux/plugins/tmux-agent-sidebar` as an extra fallback for Claude Code plugin installs. `PLUGIN_DIR` is this repository whenever the plugin directory is a symlink to it — and on a checkout used directly as the plugin, there is no `~/.tmux/plugins` at all.
+
+**`bin/` shadows `target/release/`.** It is gitignored and no script populates it, so a `bin/tmux-agent-sidebar` is a manual copy that `cargo build --release` never updates. The build succeeds, the tests pass, and the running sidebar keeps the old behaviour — which reads exactly like the change not working. Compare the timestamps before debugging the logic:
+
+```bash
+stat -f '%Sm %N' -t '%Y-%m-%d %H:%M:%S' bin/tmux-agent-sidebar target/release/tmux-agent-sidebar
+```
+
+Then rebuild, copy if `bin/` is in play, and restart the sidebar (toggle off → on via the tmux keybinding) to load it:
 
 ```bash
 cargo build --release
+cp target/release/tmux-agent-sidebar bin/tmux-agent-sidebar   # only when bin/ exists
 # Restart sidebar (toggle off → on via tmux keybinding)
 ```
 
