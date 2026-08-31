@@ -529,6 +529,38 @@ mod tests {
     }
 
     #[test]
+    fn render_pane_lines_shows_wait_reason_while_idle() {
+        // Regression guard: `idle_prompt` deliberately leaves the pane at
+        // `Idle` and only records a wait reason, so the wait-reason row must
+        // not be gated on `Waiting`. If it ever is, the sidebar silently
+        // stops reporting that an agent is sitting there waiting on the user.
+        let theme = ColorTheme::default();
+        let mut pane = pane(PermissionMode::Default, PaneStatus::Idle, "");
+        pane.wait_reason = "idle_prompt".into();
+        let lines = render_pane_lines_with_ports(
+            &pane,
+            &PaneGitInfo::default(),
+            None,
+            None,
+            false,
+            false,
+            false,
+            40,
+            &StatusIcons::default(),
+            &theme,
+            0,
+            0,
+        );
+
+        assert!(
+            lines
+                .iter()
+                .any(|l| line_text(l).contains("waiting for input")),
+            "idle pane with an idle_prompt wait reason should say so"
+        );
+    }
+
+    #[test]
     fn render_pane_lines_shows_bg_command_even_while_running() {
         // A live background shell must stay visible in the pane
         // regardless of the agent's current status — running bursts in
