@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
+use std::sync::mpsc;
+use std::time::Duration;
 
 use crate::tmux::AgentType;
 
@@ -131,9 +133,134 @@ pub(crate) fn process_matches_agent(info: &ProcessInfo, agent_name: &str) -> boo
     command_basename(command.trim_matches('"')) == agent_name
 }
 
+/// How a deadline-bounded child ended.
+///
+/// Shared by the `gh pr view` lookup in `git.rs` and the custom panel
+/// command, both of which must never let a hung child stall a polling
+/// thread. Output is read on a worker thread rather than polled with
+/// `try_wait`, so a child that fills the stdout pipe cannot deadlock.
+#[derive(Debug)]
+pub enum RunOutcome {
+    /// The child exited on its own. Inspect `status`, `stdout`, `stderr`.
+    Completed(Output),
+    /// The child outlived `timeout` and was killed.
+    TimedOut,
+    /// The child never started (missing binary, permissions, fork failure).
+    // The message is surfaced by tests today and by a later panel-command
+    // caller; `fetch_pr_number` currently discards it via `_ => None`.
+    #[allow(dead_code)]
+    SpawnFailed(String),
+}
+
+/// Run `cmd` to completion, killing it if it outlives `timeout`.
+///
+/// stdout and stderr are captured; stdin is closed so a child that reads
+/// input fails fast instead of blocking on a terminal that isn't there.
+pub fn run_with_deadline(cmd: &mut Command, timeout: Duration) -> RunOutcome {
+    let child = match cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(err) => return RunOutcome::SpawnFailed(err.to_string()),
+    };
+
+    // Keep the PID so the child can be killed after its handle moves onto
+    // the reader thread.
+    let pid = child.id() as libc::pid_t;
+
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        // wait_with_output drains both pipes while waiting, so a child
+        // producing more than the pipe buffer cannot deadlock.
+        let _ = tx.send(child.wait_with_output());
+    });
+
+    match rx.recv_timeout(timeout) {
+        Ok(Ok(output)) => RunOutcome::Completed(output),
+        Ok(Err(err)) => RunOutcome::SpawnFailed(err.to_string()),
+        Err(_) => {
+            // SAFETY: `pid` came from a child this process spawned. The
+            // worst case if it has already exited is ESRCH, which is
+            // ignored. The reader thread reaps it via wait_with_output.
+            unsafe {
+                libc::kill(pid, libc::SIGKILL);
+            }
+            RunOutcome::TimedOut
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::BufRead;
+
+    fn sh(script: &str) -> Command {
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c").arg(script);
+        cmd
+    }
+
+    #[test]
+    fn completed_returns_stdout_and_status() {
+        let mut cmd = sh("printf 'hello'");
+        match run_with_deadline(&mut cmd, Duration::from_secs(5)) {
+            RunOutcome::Completed(out) => {
+                assert!(out.status.success());
+                assert_eq!(String::from_utf8_lossy(&out.stdout), "hello");
+            }
+            other => panic!("expected Completed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn completed_captures_failure_status_and_stderr() {
+        let mut cmd = sh("printf 'boom' >&2; exit 3");
+        match run_with_deadline(&mut cmd, Duration::from_secs(5)) {
+            RunOutcome::Completed(out) => {
+                assert_eq!(out.status.code(), Some(3));
+                assert_eq!(String::from_utf8_lossy(&out.stderr), "boom");
+            }
+            other => panic!("expected Completed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn large_output_does_not_deadlock() {
+        // ~200 KB, far past the pipe buffer. A try_wait polling loop that
+        // never drains stdout would hang here until the deadline.
+        let mut cmd = sh("yes abcdefghijklmnopqrstuvwxyz | head -n 8000");
+        match run_with_deadline(&mut cmd, Duration::from_secs(10)) {
+            RunOutcome::Completed(out) => assert_eq!(out.stdout.lines().count(), 8000),
+            other => panic!("expected Completed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn slow_child_times_out() {
+        let mut cmd = sh("sleep 5");
+        let started = std::time::Instant::now();
+        match run_with_deadline(&mut cmd, Duration::from_millis(200)) {
+            RunOutcome::TimedOut => {}
+            other => panic!("expected TimedOut, got {other:?}"),
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "should return at the deadline, not wait out the child"
+        );
+    }
+
+    #[test]
+    fn missing_binary_reports_spawn_failure() {
+        let mut cmd = Command::new("definitely-not-a-real-binary-xyz");
+        match run_with_deadline(&mut cmd, Duration::from_secs(5)) {
+            RunOutcome::SpawnFailed(msg) => assert!(!msg.is_empty()),
+            other => panic!("expected SpawnFailed, got {other:?}"),
+        }
+    }
 
     #[test]
     fn descendants_walks_process_tree() {

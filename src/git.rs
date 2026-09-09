@@ -84,43 +84,16 @@ pub fn fetch_git_data(path: &str) -> GitData {
 /// times out. Bounded by a 5s deadline so a hung `gh` cannot stall the git
 /// polling thread.
 pub fn fetch_pr_number(path: &str) -> Option<String> {
-    let mut child = Command::new("gh")
-        .env("GIT_OPTIONAL_LOCKS", "0")
+    let mut cmd = Command::new("gh");
+    cmd.env("GIT_OPTIONAL_LOCKS", "0")
         .args(["pr", "view", "--json", "number", "-q", ".number"])
-        .current_dir(path)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .stdin(std::process::Stdio::null())
-        .spawn()
-        .ok()?;
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                if status.success()
-                    && let Some(stdout) = child.stdout.take()
-                {
-                    use std::io::Read;
-                    let mut buf = String::new();
-                    let mut reader = stdout;
-                    let _ = reader.read_to_string(&mut buf);
-                    let num = buf.trim().to_string();
-                    if !num.is_empty() {
-                        return Some(num);
-                    }
-                }
-                return None;
-            }
-            Ok(None) => {
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return None;
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            Err(_) => return None,
+        .current_dir(path);
+    match crate::process::run_with_deadline(&mut cmd, Duration::from_secs(5)) {
+        crate::process::RunOutcome::Completed(out) if out.status.success() => {
+            let num = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if num.is_empty() { None } else { Some(num) }
         }
+        _ => None,
     }
 }
 
