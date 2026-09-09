@@ -150,9 +150,6 @@ pub enum RunOutcome {
     /// The child outlived `timeout` and was killed.
     TimedOut,
     /// The child never started (missing binary, permissions, fork failure).
-    // The message is surfaced by tests today and by a later panel-command
-    // caller; `fetch_pr_number` currently discards it via `_ => None`.
-    #[allow(dead_code)]
     SpawnFailed(String),
 }
 

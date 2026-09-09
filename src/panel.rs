@@ -7,7 +7,7 @@
 //! layer's job (`src/ui/bottom/panel.rs`).
 
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use unicode_width::UnicodeWidthChar;
 
 /// Maximum display width of a row's leading icon. Wider values are
@@ -190,6 +190,75 @@ impl PanelConfig {
             interval: secs_or(opts, crate::tmux::SIDEBAR_PANEL_INTERVAL, DEFAULT_INTERVAL),
             timeout: secs_or(opts, crate::tmux::SIDEBAR_PANEL_TIMEOUT, DEFAULT_TIMEOUT),
         })
+    }
+}
+
+/// Context handed to a panel script, mirroring the focused pane.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PanelContext {
+    /// Resolved repository root, used as both cwd and `SIDEBAR_REPO_PATH`.
+    pub repo_path: String,
+    pub branch: String,
+    /// Focused pane's tmux ID. Scripts use it to reach any per-pane option
+    /// (`tmux show -pt "$SIDEBAR_PANE_ID" -v @pane_agent`), which is why no
+    /// individual pane field gets its own variable.
+    pub pane_id: String,
+    pub session: String,
+}
+
+/// One run's worth of panel output.
+#[derive(Debug, Clone)]
+pub struct PanelData {
+    pub rows: Vec<PanelRow>,
+    pub error: Option<String>,
+    pub fetched_at: Instant,
+}
+
+/// Run the configured command and parse its output.
+///
+/// Errors are returned as data rather than propagated: the panel keeps
+/// showing whatever it last had, with the error rendered beneath it.
+pub fn run_command(config: &PanelConfig, ctx: &PanelContext) -> PanelData {
+    let mut cmd = std::process::Command::new("sh");
+    cmd.arg("-c")
+        .arg(&config.command)
+        .current_dir(&ctx.repo_path)
+        .env("SIDEBAR_REPO_PATH", &ctx.repo_path)
+        .env("SIDEBAR_BRANCH", &ctx.branch)
+        .env("SIDEBAR_PANE_ID", &ctx.pane_id)
+        .env("SIDEBAR_SESSION", &ctx.session);
+
+    let (rows, error) = match crate::process::run_with_deadline(&mut cmd, config.timeout) {
+        crate::process::RunOutcome::Completed(out) if out.status.success() => {
+            parse_rows(&String::from_utf8_lossy(&out.stdout))
+        }
+        crate::process::RunOutcome::Completed(out) => {
+            let code = out
+                .status
+                .code()
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "signal".to_string());
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let first = stderr.lines().find(|l| !l.trim().is_empty());
+            let message = match first {
+                Some(line) => format!("exit {code}: {}", line.trim()),
+                None => format!("exit {code}"),
+            };
+            (Vec::new(), Some(message))
+        }
+        crate::process::RunOutcome::TimedOut => (
+            Vec::new(),
+            Some(format!("timed out after {}s", config.timeout.as_secs())),
+        ),
+        crate::process::RunOutcome::SpawnFailed(err) => {
+            (Vec::new(), Some(format!("failed to start: {err}")))
+        }
+    };
+
+    PanelData {
+        rows,
+        error,
+        fetched_at: Instant::now(),
     }
 }
 
@@ -382,5 +451,103 @@ mod tests {
         ]))
         .expect("command set");
         assert_eq!(cfg.name, "Custom");
+    }
+
+    fn cfg(command: &str) -> PanelConfig {
+        PanelConfig {
+            command: command.to_string(),
+            name: "Custom".into(),
+            interval: Duration::from_secs(120),
+            timeout: Duration::from_secs(5),
+        }
+    }
+
+    fn ctx() -> PanelContext {
+        PanelContext {
+            repo_path: "/tmp".into(),
+            branch: "main".into(),
+            pane_id: "%1".into(),
+            session: "work".into(),
+        }
+    }
+
+    #[test]
+    fn runs_the_command_and_parses_rows() {
+        let data = run_command(&cfg(r#"printf '{"text":"ok"}\n'"#), &ctx());
+        assert_eq!(data.rows.len(), 1);
+        assert_eq!(data.rows[0].text, "ok");
+        assert!(data.error.is_none());
+    }
+
+    #[test]
+    fn exposes_context_in_the_environment() {
+        let data = run_command(
+            &cfg(
+                r#"printf '{"text":"%s %s %s %s"}\n' "$SIDEBAR_REPO_PATH" "$SIDEBAR_BRANCH" "$SIDEBAR_PANE_ID" "$SIDEBAR_SESSION""#,
+            ),
+            &ctx(),
+        );
+        assert_eq!(data.rows[0].text, "/tmp main %1 work");
+    }
+
+    #[test]
+    fn does_not_set_a_sidebar_agent_variable() {
+        // Agent type is reachable via `tmux show -pt "$SIDEBAR_PANE_ID" -v
+        // @pane_agent`; promoting one of 22 pane options to an env var is
+        // deliberately not done.
+        let data = run_command(
+            &cfg(r#"printf '{"text":"[%s]"}\n' "$SIDEBAR_AGENT""#),
+            &ctx(),
+        );
+        assert_eq!(data.rows[0].text, "[]");
+    }
+
+    #[test]
+    fn runs_in_the_repo_path() {
+        let data = run_command(&cfg(r#"printf '{"text":"%s"}\n' "$(pwd)""#), &ctx());
+        // macOS reports /tmp as a symlink to /private/tmp; accept either.
+        assert!(
+            data.rows[0].text.ends_with("/tmp"),
+            "unexpected cwd: {}",
+            data.rows[0].text
+        );
+    }
+
+    #[test]
+    fn non_zero_exit_reports_the_first_stderr_line() {
+        let data = run_command(
+            &cfg("printf 'gh: not found\\nsecond line\\n' >&2; exit 1"),
+            &ctx(),
+        );
+        assert!(data.rows.is_empty());
+        assert_eq!(data.error.as_deref(), Some("exit 1: gh: not found"));
+    }
+
+    #[test]
+    fn non_zero_exit_without_stderr_still_reports() {
+        let data = run_command(&cfg("exit 2"), &ctx());
+        assert_eq!(data.error.as_deref(), Some("exit 2"));
+    }
+
+    #[test]
+    fn timeout_is_reported() {
+        let mut config = cfg("sleep 5");
+        config.timeout = Duration::from_millis(200);
+        let data = run_command(&config, &ctx());
+        assert_eq!(data.error.as_deref(), Some("timed out after 0s"));
+    }
+
+    #[test]
+    fn successful_run_with_no_output_is_not_an_error() {
+        let data = run_command(&cfg("true"), &ctx());
+        assert!(data.rows.is_empty());
+        assert!(data.error.is_none());
+    }
+
+    #[test]
+    fn plain_text_output_is_an_error() {
+        let data = run_command(&cfg("echo hello world"), &ctx());
+        assert!(data.rows.is_empty());
+        assert!(data.error.is_some());
     }
 }
