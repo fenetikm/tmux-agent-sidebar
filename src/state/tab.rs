@@ -141,10 +141,6 @@ impl AppState {
         };
     }
 
-    /// Handle mouse click on the bottom panel tab header.
-    /// Tab title layout: "╭ Activity │ Git ╮" — col is relative to the terminal.
-    /// The block border starts at col 0, so the title text starts at col 1.
-    /// " Activity " spans cols 1..11, "│" at col 11, " Git " spans cols 12..17.
     /// Handle a mouse click on the bottom panel's tab header.
     ///
     /// Ranges come from `layout.bottom_tab_targets`, rebuilt each frame,

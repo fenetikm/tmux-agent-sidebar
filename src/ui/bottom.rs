@@ -99,7 +99,9 @@ pub fn build_tab_title(state: &AppState) -> (Line<'static>, Vec<BottomTabTarget>
         ("Activity".to_string(), BottomTab::Activity),
         ("Git".to_string(), BottomTab::GitStatus),
     ];
-    if let Some(ref config) = state.panel_config {
+    if state.panel_enabled()
+        && let Some(config) = &state.panel_config
+    {
         titles.push((config.name.clone(), BottomTab::Panel));
     }
 
