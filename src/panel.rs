@@ -6,6 +6,8 @@
 //! Mapping a [`PanelColor`] onto a concrete terminal colour is the UI
 //! layer's job (`src/ui/bottom/panel.rs`).
 
+use std::collections::HashMap;
+use std::time::Duration;
 use unicode_width::UnicodeWidthChar;
 
 /// Maximum display width of a row's leading icon. Wider values are
@@ -146,6 +148,51 @@ pub fn parse_rows(stdout: &str) -> (Vec<PanelRow>, Option<String>) {
     (rows, error)
 }
 
+const DEFAULT_NAME: &str = "Custom";
+const DEFAULT_INTERVAL: Duration = Duration::from_secs(120);
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Resolved `@sidebar_panel_*` configuration. Its existence is what enables
+/// the feature: `None` means no tab, no worker, no subprocess.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PanelConfig {
+    pub command: String,
+    pub name: String,
+    pub interval: Duration,
+    pub timeout: Duration,
+}
+
+/// Parse a positive whole number of seconds, falling back to `default` for
+/// missing, malformed or zero values — matching how `@sidebar_sorting`
+/// treats unrecognised input.
+fn secs_or(opts: &HashMap<String, String>, key: &str, default: Duration) -> Duration {
+    opts.get(key)
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .filter(|n| *n > 0)
+        .map(Duration::from_secs)
+        .unwrap_or(default)
+}
+
+impl PanelConfig {
+    pub fn from_options(opts: &HashMap<String, String>) -> Option<Self> {
+        let command = opts
+            .get(crate::tmux::SIDEBAR_PANEL_COMMAND)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())?;
+        let name = opts
+            .get(crate::tmux::SIDEBAR_PANEL_NAME)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| DEFAULT_NAME.to_string());
+        Some(Self {
+            command,
+            name,
+            interval: secs_or(opts, crate::tmux::SIDEBAR_PANEL_INTERVAL, DEFAULT_INTERVAL),
+            timeout: secs_or(opts, crate::tmux::SIDEBAR_PANEL_TIMEOUT, DEFAULT_TIMEOUT),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -269,5 +316,71 @@ mod tests {
         assert_eq!(PanelColor::from_name("danger"), PanelColor::Danger);
         assert_eq!(PanelColor::from_name("DANGER"), PanelColor::Danger);
         assert_eq!(PanelColor::from_name(""), PanelColor::Default);
+    }
+
+    use std::collections::HashMap;
+    use std::time::Duration;
+
+    fn opts(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn config_is_none_without_a_command() {
+        assert!(PanelConfig::from_options(&opts(&[("@sidebar_panel_name", "PRs")])).is_none());
+    }
+
+    #[test]
+    fn config_is_none_for_a_blank_command() {
+        assert!(PanelConfig::from_options(&opts(&[("@sidebar_panel_command", "   ")])).is_none());
+    }
+
+    #[test]
+    fn config_uses_defaults() {
+        let cfg = PanelConfig::from_options(&opts(&[("@sidebar_panel_command", "echo hi")]))
+            .expect("command set");
+        assert_eq!(cfg.command, "echo hi");
+        assert_eq!(cfg.name, "Custom");
+        assert_eq!(cfg.interval, Duration::from_secs(120));
+        assert_eq!(cfg.timeout, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn config_reads_all_overrides() {
+        let cfg = PanelConfig::from_options(&opts(&[
+            ("@sidebar_panel_command", "gh pr list"),
+            ("@sidebar_panel_name", "PRs"),
+            ("@sidebar_panel_interval", "30"),
+            ("@sidebar_panel_timeout", "3"),
+        ]))
+        .expect("command set");
+        assert_eq!(cfg.name, "PRs");
+        assert_eq!(cfg.interval, Duration::from_secs(30));
+        assert_eq!(cfg.timeout, Duration::from_secs(3));
+    }
+
+    #[test]
+    fn malformed_or_zero_numbers_fall_back_to_defaults() {
+        let cfg = PanelConfig::from_options(&opts(&[
+            ("@sidebar_panel_command", "echo hi"),
+            ("@sidebar_panel_interval", "abc"),
+            ("@sidebar_panel_timeout", "0"),
+        ]))
+        .expect("command set");
+        assert_eq!(cfg.interval, Duration::from_secs(120));
+        assert_eq!(cfg.timeout, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn blank_name_falls_back_to_default() {
+        let cfg = PanelConfig::from_options(&opts(&[
+            ("@sidebar_panel_command", "echo hi"),
+            ("@sidebar_panel_name", "  "),
+        ]))
+        .expect("command set");
+        assert_eq!(cfg.name, "Custom");
     }
 }
