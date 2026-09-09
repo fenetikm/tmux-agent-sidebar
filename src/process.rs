@@ -3,6 +3,7 @@ use std::io::Read;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use crate::tmux::AgentType;
@@ -138,8 +139,10 @@ pub(crate) fn process_matches_agent(info: &ProcessInfo, agent_name: &str) -> boo
 ///
 /// Shared by the `gh pr view` lookup in `git.rs` and the custom panel
 /// command, both of which must never let a hung child stall a polling
-/// thread. Output is read on a worker thread rather than polled with
-/// `try_wait`, so a child that fills the stdout pipe cannot deadlock.
+/// thread. Output is read on dedicated worker threads *and* the wait is a
+/// `try_wait` poll loop on the calling thread, so a child that fills the
+/// stdout pipe cannot deadlock the wait, and a hung wait cannot block the
+/// readers either.
 #[derive(Debug)]
 pub enum RunOutcome {
     /// The child exited on its own. Inspect `status`, `stdout`, `stderr`.
@@ -163,7 +166,12 @@ pub enum RunOutcome {
 /// direct child. A `sh -c "slow | filter"` style command spawns
 /// grandchildren that inherit the stdout pipe; killing only `sh` would leave
 /// those grandchildren holding the pipe open, so the reader threads below
-/// would never see EOF.
+/// would never see EOF. The same applies to a backgrounded descendant that
+/// outlives the direct child, e.g. `sh -c "slow-thing & printf hi"`: the
+/// shell exits immediately, but the backgrounded process still holds the
+/// pipe open, so even after `try_wait` reports the child gone, reading the
+/// pipes to EOF must stay bounded by the deadline rather than block
+/// unboundedly on that orphan.
 pub fn run_with_deadline(cmd: &mut Command, timeout: Duration) -> RunOutcome {
     let mut child = match cmd
         .stdin(Stdio::null())
@@ -184,18 +192,23 @@ pub fn run_with_deadline(cmd: &mut Command, timeout: Duration) -> RunOutcome {
     // buffer cannot deadlock the poll loop below. `child` itself stays on
     // this thread (unlike the previous version, which moved it onto a
     // reader thread) so this thread can still `try_wait`/`wait` it and,
-    // on timeout, kill and reap it directly.
+    // on timeout, kill and reap it directly. Each thread sends its buffer
+    // over a channel (instead of returning it from the `JoinHandle`) so the
+    // calling thread can wait for it with a bounded `recv_timeout` rather
+    // than an unbounded `join`.
     let mut stdout_pipe = child.stdout.take().expect("stdout was piped");
     let mut stderr_pipe = child.stderr.take().expect("stderr was piped");
+    let (stdout_tx, stdout_rx) = mpsc::channel();
+    let (stderr_tx, stderr_rx) = mpsc::channel();
     let stdout_thread = std::thread::spawn(move || {
         let mut buf = Vec::new();
         let _ = stdout_pipe.read_to_end(&mut buf);
-        buf
+        let _ = stdout_tx.send(buf);
     });
     let stderr_thread = std::thread::spawn(move || {
         let mut buf = Vec::new();
         let _ = stderr_pipe.read_to_end(&mut buf);
-        buf
+        let _ = stderr_tx.send(buf);
     });
 
     let deadline = Instant::now() + timeout;
@@ -214,13 +227,56 @@ pub fn run_with_deadline(cmd: &mut Command, timeout: Duration) -> RunOutcome {
 
     match wait_result {
         Ok(Some(status)) => {
-            let stdout = stdout_thread.join().unwrap_or_default();
-            let stderr = stderr_thread.join().unwrap_or_default();
-            RunOutcome::Completed(Output {
-                status,
-                stdout,
-                stderr,
-            })
+            // The direct child has exited, but a descendant that inherited
+            // the stdout/stderr pipes (e.g. a backgrounded `&` job) can
+            // still be holding them open, so `read_to_end` on the reader
+            // threads may not have seen EOF yet. Wait for each reader only
+            // until the *original* deadline, not a fresh timeout — this is
+            // what keeps the deadline hard even on the success path.
+            let stdout_result =
+                stdout_rx.recv_timeout(deadline.saturating_duration_since(Instant::now()));
+            let stderr_result =
+                stderr_rx.recv_timeout(deadline.saturating_duration_since(Instant::now()));
+
+            match (stdout_result, stderr_result) {
+                (Ok(stdout), Ok(stderr)) => {
+                    let _ = stdout_thread.join();
+                    let _ = stderr_thread.join();
+                    RunOutcome::Completed(Output {
+                        status,
+                        stdout,
+                        stderr,
+                    })
+                }
+                _ => {
+                    // A descendant outlived the direct child and is still
+                    // holding a pipe open past the deadline. Force EOF by
+                    // killing the whole process group, then the readers can
+                    // finish and we join them.
+                    //
+                    // SAFETY: the direct child's pid was already reaped by
+                    // `try_wait` above, but a process group ID stays live
+                    // as long as it has members — and the orphaned
+                    // descendant holding the pipe open is still a member of
+                    // this one. POSIX/Linux will not hand `pid` out as a
+                    // fresh PID to an unrelated process while it is still
+                    // pinned as an active process group ID, so `kill(-pid,
+                    // ...)` still reaches only processes descended from
+                    // this call's child, not a recycled PID.
+                    unsafe {
+                        libc::kill(-pid, libc::SIGKILL);
+                    }
+                    let _ = stdout_thread.join();
+                    let _ = stderr_thread.join();
+                    // Deliberately TimedOut, not Completed with whatever
+                    // partial output we did capture: the next consumer
+                    // parses NDJSON, and silently truncated output would
+                    // render a plausible-looking short list instead of
+                    // surfacing an error. A reported failure beats a wrong
+                    // answer.
+                    RunOutcome::TimedOut
+                }
+            }
         }
         Ok(None) => {
             // SAFETY: this thread — not a reader thread — has held `child`
@@ -324,6 +380,28 @@ mod tests {
         assert!(
             started.elapsed() < Duration::from_secs(3),
             "should return at the deadline, not hang on a leaked descendant"
+        );
+    }
+
+    #[test]
+    fn backgrounded_descendant_holding_stdout_still_times_out_promptly() {
+        // The shell exits immediately (backgrounding `sleep 5` and printing
+        // "hi"), so `try_wait` reports the child gone almost instantly. But
+        // `sleep 5` inherits the write end of the stdout pipe and keeps it
+        // open for 5s. Before this fix, the post-exit `join()` was
+        // unbounded, so this call would block for ~5s despite a 200ms
+        // deadline — the deadline must stay hard even on this success-ish
+        // path, so the correct outcome is TimedOut, not Completed with
+        // partial/full output.
+        let mut cmd = sh("sleep 5 & printf hi");
+        let started = std::time::Instant::now();
+        match run_with_deadline(&mut cmd, Duration::from_millis(200)) {
+            RunOutcome::TimedOut => {}
+            other => panic!("expected TimedOut, got {other:?}"),
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "should return near the deadline, not wait out the orphaned descendant"
         );
     }
 
