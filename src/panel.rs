@@ -581,6 +581,25 @@ mod tests {
     }
 
     #[test]
+    fn oversized_output_surfaces_as_an_error_not_truncated_rows() {
+        // A command that emits far more than `process::MAX_OUTPUT_BYTES`
+        // (1 MiB) must never turn into a plausible-looking short row list
+        // from a silently truncated NDJSON prefix — it must show up as an
+        // error in the panel's footer instead, same as any other failure.
+        let mut config = cfg("yes | head -c 20000000");
+        config.timeout = Duration::from_secs(2);
+        let data = run_command(&config, &ctx());
+        assert!(
+            data.rows.is_empty(),
+            "oversized output must not parse into rows"
+        );
+        assert!(
+            data.error.is_some(),
+            "oversized output must surface as an error"
+        );
+    }
+
+    #[test]
     fn successful_run_with_no_output_is_not_an_error() {
         let data = run_command(&cfg("true"), &ctx());
         assert!(data.rows.is_empty());
