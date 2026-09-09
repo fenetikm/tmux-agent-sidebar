@@ -45,15 +45,7 @@ pub(super) fn spawn(state: &AppState) -> Workers {
     });
 
     let panel_tab_active = Arc::new(AtomicBool::new(state.bottom_tab == BottomTab::Panel));
-    let panel_rx = state.panel_config.clone().map(|config| {
-        let (panel_tx, panel_rx) = mpsc::channel::<crate::panel::PanelData>();
-        let tmux_pane = state.tmux_pane.clone();
-        let active = Arc::clone(&panel_tab_active);
-        std::thread::spawn(move || {
-            panel_poll_loop(&tmux_pane, &config, &panel_tx, &active);
-        });
-        panel_rx
-    });
+    let panel_rx = spawn_panel_worker(state, &panel_tab_active);
 
     Workers {
         git_rx,
@@ -63,6 +55,24 @@ pub(super) fn spawn(state: &AppState) -> Workers {
         panel_rx,
         panel_tab_active,
     }
+}
+
+/// Spawn the panel poll thread when `@sidebar_panel_command` is configured.
+/// Returns `None` — spawning nothing — when it is not, which is what keeps
+/// the worker zero-cost for the common case of no panel configured.
+fn spawn_panel_worker(
+    state: &AppState,
+    panel_tab_active: &Arc<AtomicBool>,
+) -> Option<Receiver<crate::panel::PanelData>> {
+    state.panel_config.clone().map(|config| {
+        let (panel_tx, panel_rx) = mpsc::channel::<crate::panel::PanelData>();
+        let tmux_pane = state.tmux_pane.clone();
+        let active = Arc::clone(panel_tab_active);
+        std::thread::spawn(move || {
+            panel_poll_loop(&tmux_pane, &config, &panel_tx, &active);
+        });
+        panel_rx
+    })
 }
 
 /// Session name polling thread. Scans `~/.claude/sessions/*.json` every 10
@@ -129,7 +139,7 @@ pub(super) fn panel_poll_loop(
     active: &AtomicBool,
 ) {
     let mut cache = crate::panel::PanelCache::new();
-    let mut last_path: Option<String> = None;
+    let mut last_pane: Option<(String, String)> = None;
     loop {
         std::thread::sleep(Duration::from_secs(1));
 
@@ -138,34 +148,36 @@ pub(super) fn panel_poll_loop(
         }
 
         // Returns None while the sidebar itself holds focus; reuse the last
-        // known path so the panel does not blank out.
-        if let Some(p) = tmux::focused_pane_path(tmux_pane) {
-            last_path = Some(p);
+        // known (pane_id, path) pair so the panel does not blank out and the
+        // two never get paired across a focus change mid-iteration.
+        if let Some(p) = tmux::find_active_pane(tmux_pane) {
+            last_pane = Some(p);
         }
-        let Some(ref path) = last_path else {
+        let Some((ref pane_id, ref path)) = last_pane else {
             continue;
         };
 
         // Resolve the repository root so the cache key and the script's cwd
-        // do not fragment per subdirectory.
+        // do not fragment per subdirectory. This is the only work needed
+        // before the cache check: everything else in `PanelContext` is only
+        // consumed on a cache miss, inside the closure below.
         let repo_path = git::repo_root(path).unwrap_or_else(|| path.clone());
-        let ctx = crate::panel::PanelContext {
-            branch: git::run_git(&repo_path, &["rev-parse", "--abbrev-ref", "HEAD"])
-                .unwrap_or_default(),
-            pane_id: tmux::find_active_pane(tmux_pane)
-                .map(|(id, _)| id)
-                .unwrap_or_default(),
-            session: tmux::run_tmux(&["display-message", "-p", "#S"])
-                .map(|s| s.trim().to_string())
-                .unwrap_or_default(),
-            repo_path: repo_path.clone(),
-        };
-
         let data = cache.get_or_run(
             &repo_path,
             std::time::Instant::now(),
             config.interval,
-            || crate::panel::run_command(config, &ctx),
+            || {
+                let ctx = crate::panel::PanelContext {
+                    branch: git::run_git(&repo_path, &["rev-parse", "--abbrev-ref", "HEAD"])
+                        .unwrap_or_default(),
+                    pane_id: pane_id.clone(),
+                    session: tmux::run_tmux(&["display-message", "-p", "#S"])
+                        .map(|s| s.trim().to_string())
+                        .unwrap_or_default(),
+                    repo_path: repo_path.clone(),
+                };
+                crate::panel::run_command(config, &ctx)
+            },
         );
         if panel_tx.send(data).is_err() {
             return;
@@ -179,10 +191,16 @@ mod tests {
 
     #[test]
     fn panel_worker_is_not_spawned_without_config() {
+        // Exercises `spawn_panel_worker` directly rather than the full
+        // `spawn`, which also starts the git poll loop, the session scan
+        // loop, and a `curl` to GitHub for the version notice — none of
+        // which this test needs, and all of which would otherwise run in
+        // every `cargo test` invocation.
         let state = AppState::new("%99".into());
-        let workers = spawn(&state);
+        let panel_tab_active = Arc::new(AtomicBool::new(false));
+        let panel_rx = spawn_panel_worker(&state, &panel_tab_active);
         assert!(
-            workers.panel_rx.is_none(),
+            panel_rx.is_none(),
             "no @sidebar_panel_command means no worker and no channel"
         );
     }
