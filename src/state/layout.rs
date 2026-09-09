@@ -33,6 +33,18 @@ pub struct HyperlinkOverlay {
     pub url: String,
 }
 
+/// Click region for one bottom-panel tab title. Computed during render
+/// because the panel tab's title is user-supplied, so the column ranges
+/// cannot be known at compile time.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BottomTabTarget {
+    /// First column of the title text, absolute within the frame.
+    pub start: u16,
+    /// One past the last column of the title text.
+    pub end: u16,
+    pub tab: crate::state::BottomTab,
+}
+
 /// Ephemeral render output cached for click hit-testing.
 ///
 /// Every field here is **rewritten on every frame** by the UI layer and
@@ -61,6 +73,9 @@ pub struct FrameLayout {
     /// OSC 8 hyperlink overlays the main loop writes after each frame so
     /// terminals can recognise PR numbers as clickable links.
     pub hyperlink_overlays: Vec<HyperlinkOverlay>,
+    /// Click regions for the bottom panel's tab titles, rebuilt each frame
+    /// by `ui::bottom::draw_bottom`.
+    pub bottom_tab_targets: Vec<BottomTabTarget>,
 }
 
 pub(super) fn point_in_rect(row: u16, col: u16, rect: ratatui::layout::Rect) -> bool {

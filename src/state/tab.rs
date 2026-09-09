@@ -145,14 +145,19 @@ impl AppState {
     /// Tab title layout: "╭ Activity │ Git ╮" — col is relative to the terminal.
     /// The block border starts at col 0, so the title text starts at col 1.
     /// " Activity " spans cols 1..11, "│" at col 11, " Git " spans cols 12..17.
+    /// Handle a mouse click on the bottom panel's tab header.
+    ///
+    /// Ranges come from `layout.bottom_tab_targets`, rebuilt each frame,
+    /// because the panel tab's title is user-supplied and its columns
+    /// cannot be hardcoded.
     pub fn handle_bottom_tab_click(&mut self, col: u16) {
-        // Offset by 1 for the left border character
-        let x = col.saturating_sub(1) as usize;
-        // " Activity " = 10 chars (0..10), "│" = 1 char (10), " Git " = 5 chars (11..16)
-        if x < 10 {
-            self.bottom_tab = BottomTab::Activity;
-        } else if (11..16).contains(&x) {
-            self.bottom_tab = BottomTab::GitStatus;
+        if let Some(target) = self
+            .layout
+            .bottom_tab_targets
+            .iter()
+            .find(|t| col >= t.start && col < t.end)
+        {
+            self.bottom_tab = target.tab.clone();
         }
     }
 

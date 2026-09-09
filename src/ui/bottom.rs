@@ -9,7 +9,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
 };
 
-use crate::state::{AppState, BottomTab, Focus};
+use crate::state::{AppState, BottomTab, BottomTabTarget, Focus};
 
 use super::text::display_width;
 
@@ -33,7 +33,15 @@ pub fn draw_bottom(frame: &mut Frame, state: &mut AppState, area: Rect) {
         theme.border_inactive
     };
 
-    let tab_title = build_tab_title(state);
+    let (tab_title, tab_targets) = build_tab_title(state);
+    state.layout.bottom_tab_targets = tab_targets
+        .into_iter()
+        .map(|mut t| {
+            t.start += area.x;
+            t.end += area.x;
+            t
+        })
+        .collect();
 
     let block = Block::default()
         .borders(Borders::ALL)
@@ -77,27 +85,51 @@ pub fn draw_bottom(frame: &mut Frame, state: &mut AppState, area: Rect) {
     }
 }
 
-fn build_tab_title(state: &AppState) -> Line<'static> {
+/// Build the bottom panel's tab title, together with the click region of
+/// each title. The panel tab's name comes from config, so the ranges are
+/// computed here rather than hardcoded.
+///
+/// Layout is `╭ Activity │ Git │ <name> ─…╮`, so the first title starts at
+/// column 2: one for the `╭` and one for the space after it.
+pub fn build_tab_title(state: &AppState) -> (Line<'static>, Vec<BottomTabTarget>) {
     let theme = &state.theme;
-    let activity_style = if state.bottom_tab == BottomTab::Activity {
-        Style::default().fg(theme.accent)
-    } else {
-        Style::default().fg(theme.text_muted)
-    };
-
-    let git_style = if state.bottom_tab == BottomTab::GitStatus {
-        Style::default().fg(theme.accent)
-    } else {
-        Style::default().fg(theme.text_muted)
-    };
-
     let sep_style = Style::default().fg(theme.border_inactive);
 
-    Line::from(vec![
-        Span::styled("Activity", activity_style),
-        Span::styled(" \u{2502} ", sep_style),
-        Span::styled("Git", git_style),
-    ])
+    let mut titles: Vec<(String, BottomTab)> = vec![
+        ("Activity".to_string(), BottomTab::Activity),
+        ("Git".to_string(), BottomTab::GitStatus),
+    ];
+    if let Some(ref config) = state.panel_config {
+        titles.push((config.name.clone(), BottomTab::Panel));
+    }
+
+    // Column 0 is the `╭` border, column 1 the space after it.
+    const TITLE_START_COL: u16 = 2;
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut targets: Vec<BottomTabTarget> = Vec::new();
+    let mut col = TITLE_START_COL;
+
+    for (index, (label, tab)) in titles.into_iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::styled(" \u{2502} ", sep_style));
+            col += 3;
+        }
+        let width = display_width(&label) as u16;
+        let style = if state.bottom_tab == tab {
+            Style::default().fg(theme.accent)
+        } else {
+            Style::default().fg(theme.text_muted)
+        };
+        spans.push(Span::styled(label, style));
+        targets.push(BottomTabTarget {
+            start: col,
+            end: col + width,
+            tab,
+        });
+        col += width;
+    }
+
+    (Line::from(spans), targets)
 }
 
 #[cfg(test)]
