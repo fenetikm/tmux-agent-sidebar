@@ -9,6 +9,8 @@ The bottom panel can grow an optional third tab that runs your own shell command
 set -g @sidebar_panel_command "gh pr list --json number,title,url | jq -c '.[] | {text: .title, url: .url}'"
 ```
 
+This calls `gh` directly on every run, with no caching — fine for a quick try, but see [Polling and caching](#polling-and-caching) below before using it across multiple windows on the same repo.
+
 ## Options
 
 | Option                    | Default | Description                                                              |
@@ -23,6 +25,8 @@ set -g @sidebar_panel_command "gh pr list --json number,title,url | jq -c '.[] |
 ## The script contract
 
 The command runs as `sh -c "<command>"`, so pipelines, `jq`, and shell operators all work as expected. Its working directory is the resolved repository root of the focused pane — not the pane's own cwd — falling back to the pane's own path when it isn't inside a repository.
+
+Because that working directory changes with the focused pane, a relative command path (e.g. `./scripts/panel.sh`) resolves against whichever repository happens to be focused, not against the repository the script lives in — it can silently pick up the wrong file, or fail to resolve at all, as focus moves around. Use an absolute path, or put the script on `PATH`.
 
 Exactly four environment variables are set:
 
@@ -93,9 +97,10 @@ gh pr list --json number,title,url,isDraft,reviewDecision \
       url: .url,
       icon: (if .isDraft then "◌" elif .reviewDecision == "APPROVED" then "✓" else "•" end),
       icon_color: (if .isDraft then "muted" elif .reviewDecision == "APPROVED" then "success" else "accent" end)
-    }' > "$cache.tmp" && mv "$cache.tmp" "$cache"
-cat "$cache"
+    }' > "$cache.tmp" && mv "$cache.tmp" "$cache" && cat "$cache"
 ```
+
+The final `cat` is chained with `&&` rather than run unconditionally: on a cold cache, if `gh` or `jq` fails, `mv` never runs and `cat` must not either — otherwise the user sees `cat: ...: No such file or directory` instead of `gh`'s actual error, which is what surfaces (via its exit status and stderr) when the chain stops early.
 
 Save it somewhere on `PATH` (or reference it by full path) and point `@sidebar_panel_command` at it:
 
