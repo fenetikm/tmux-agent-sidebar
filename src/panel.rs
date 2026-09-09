@@ -262,6 +262,49 @@ pub fn run_command(config: &PanelConfig, ctx: &PanelContext) -> PanelData {
     }
 }
 
+/// Per-process cache of panel results, keyed by repository path.
+///
+/// Exists to absorb focus thrash rather than to save API quota:
+/// cross-process deduplication is the script's job. Multi-entry so moving
+/// between two repositories does not evict either one.
+#[derive(Debug, Default)]
+pub struct PanelCache {
+    entries: HashMap<String, PanelData>,
+}
+
+impl PanelCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Return the cached result for `key` when it is younger than `ttl`,
+    /// otherwise call `run` and store the result.
+    ///
+    /// A failed run keeps the previous rows so the panel does not flicker
+    /// between useful and empty on a transient error. A *successful* run
+    /// returning nothing does clear them — that is a real result.
+    pub fn get_or_run<F>(&mut self, key: &str, now: Instant, ttl: Duration, run: F) -> PanelData
+    where
+        F: FnOnce() -> PanelData,
+    {
+        if let Some(cached) = self.entries.get(key)
+            && now.duration_since(cached.fetched_at) < ttl
+        {
+            return cached.clone();
+        }
+
+        let mut fresh = run();
+        if fresh.error.is_some()
+            && fresh.rows.is_empty()
+            && let Some(previous) = self.entries.get(key)
+        {
+            fresh.rows = previous.rows.clone();
+        }
+        self.entries.insert(key.to_string(), fresh.clone());
+        fresh
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -549,5 +592,130 @@ mod tests {
         let data = run_command(&cfg("echo hello world"), &ctx());
         assert!(data.rows.is_empty());
         assert!(data.error.is_some());
+    }
+
+    fn data(texts: &[&str], error: Option<&str>, at: Instant) -> PanelData {
+        PanelData {
+            rows: texts
+                .iter()
+                .map(|t| PanelRow {
+                    text: (*t).to_string(),
+                    text_color: PanelColor::Default,
+                    icon: None,
+                    icon_color: PanelColor::Default,
+                    url: None,
+                    heading: false,
+                })
+                .collect(),
+            error: error.map(str::to_string),
+            fetched_at: at,
+        }
+    }
+
+    #[test]
+    fn first_call_runs_the_command() {
+        let mut cache = PanelCache::new();
+        let now = Instant::now();
+        let mut ran = 0;
+        let out = cache.get_or_run("/repo", now, Duration::from_secs(60), || {
+            ran += 1;
+            data(&["a"], None, now)
+        });
+        assert_eq!(ran, 1);
+        assert_eq!(out.rows[0].text, "a");
+    }
+
+    #[test]
+    fn fresh_entry_is_reused_without_running() {
+        let mut cache = PanelCache::new();
+        let t0 = Instant::now();
+        cache.get_or_run("/repo", t0, Duration::from_secs(60), || {
+            data(&["a"], None, t0)
+        });
+
+        let mut ran = 0;
+        let out = cache.get_or_run(
+            "/repo",
+            t0 + Duration::from_secs(5),
+            Duration::from_secs(60),
+            || {
+                ran += 1;
+                data(&["b"], None, t0)
+            },
+        );
+        assert_eq!(ran, 0, "within TTL the command must not run");
+        assert_eq!(out.rows[0].text, "a");
+    }
+
+    #[test]
+    fn expired_entry_reruns() {
+        let mut cache = PanelCache::new();
+        let t0 = Instant::now();
+        cache.get_or_run("/repo", t0, Duration::from_secs(60), || {
+            data(&["a"], None, t0)
+        });
+
+        let later = t0 + Duration::from_secs(61);
+        let out = cache.get_or_run("/repo", later, Duration::from_secs(60), || {
+            data(&["b"], None, later)
+        });
+        assert_eq!(out.rows[0].text, "b");
+    }
+
+    #[test]
+    fn distinct_keys_do_not_evict_each_other() {
+        let mut cache = PanelCache::new();
+        let t0 = Instant::now();
+        cache.get_or_run("/a", t0, Duration::from_secs(60), || {
+            data(&["from a"], None, t0)
+        });
+        cache.get_or_run("/b", t0, Duration::from_secs(60), || {
+            data(&["from b"], None, t0)
+        });
+
+        let mut ran = 0;
+        let out = cache.get_or_run(
+            "/a",
+            t0 + Duration::from_secs(1),
+            Duration::from_secs(60),
+            || {
+                ran += 1;
+                data(&["rerun"], None, t0)
+            },
+        );
+        assert_eq!(ran, 0, "/b must not have evicted /a");
+        assert_eq!(out.rows[0].text, "from a");
+    }
+
+    #[test]
+    fn failed_rerun_keeps_the_last_good_rows() {
+        let mut cache = PanelCache::new();
+        let t0 = Instant::now();
+        cache.get_or_run("/repo", t0, Duration::from_secs(60), || {
+            data(&["good"], None, t0)
+        });
+
+        let later = t0 + Duration::from_secs(61);
+        let out = cache.get_or_run("/repo", later, Duration::from_secs(60), || {
+            data(&[], Some("exit 1: boom"), later)
+        });
+        assert_eq!(out.rows[0].text, "good", "stale rows survive a failure");
+        assert_eq!(out.error.as_deref(), Some("exit 1: boom"));
+    }
+
+    #[test]
+    fn successful_empty_rerun_clears_the_rows() {
+        let mut cache = PanelCache::new();
+        let t0 = Instant::now();
+        cache.get_or_run("/repo", t0, Duration::from_secs(60), || {
+            data(&["good"], None, t0)
+        });
+
+        let later = t0 + Duration::from_secs(61);
+        let out = cache.get_or_run("/repo", later, Duration::from_secs(60), || {
+            data(&[], None, later)
+        });
+        assert!(out.rows.is_empty(), "an empty success is a real result");
+        assert!(out.error.is_none());
     }
 }
