@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::io::Read;
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
-use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::tmux::AgentType;
 
@@ -156,39 +157,92 @@ pub enum RunOutcome {
 ///
 /// stdout and stderr are captured; stdin is closed so a child that reads
 /// input fails fast instead of blocking on a terminal that isn't there.
+///
+/// The child is made the leader of its own process group (`process_group(0)`)
+/// so that on timeout the *whole* group can be signalled, not just the
+/// direct child. A `sh -c "slow | filter"` style command spawns
+/// grandchildren that inherit the stdout pipe; killing only `sh` would leave
+/// those grandchildren holding the pipe open, so the reader threads below
+/// would never see EOF.
 pub fn run_with_deadline(cmd: &mut Command, timeout: Duration) -> RunOutcome {
-    let child = match cmd
+    let mut child = match cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .process_group(0)
         .spawn()
     {
         Ok(child) => child,
         Err(err) => return RunOutcome::SpawnFailed(err.to_string()),
     };
 
-    // Keep the PID so the child can be killed after its handle moves onto
-    // the reader thread.
+    // `process_group(0)` makes the child its own group leader, so its PID
+    // doubles as its process group ID.
     let pid = child.id() as libc::pid_t;
 
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        // wait_with_output drains both pipes while waiting, so a child
-        // producing more than the pipe buffer cannot deadlock.
-        let _ = tx.send(child.wait_with_output());
+    // Read stdout/stderr on their own threads so a child that fills a pipe
+    // buffer cannot deadlock the poll loop below. `child` itself stays on
+    // this thread (unlike the previous version, which moved it onto a
+    // reader thread) so this thread can still `try_wait`/`wait` it and,
+    // on timeout, kill and reap it directly.
+    let mut stdout_pipe = child.stdout.take().expect("stdout was piped");
+    let mut stderr_pipe = child.stderr.take().expect("stderr was piped");
+    let stdout_thread = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stdout_pipe.read_to_end(&mut buf);
+        buf
+    });
+    let stderr_thread = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stderr_pipe.read_to_end(&mut buf);
+        buf
     });
 
-    match rx.recv_timeout(timeout) {
-        Ok(Ok(output)) => RunOutcome::Completed(output),
-        Ok(Err(err)) => RunOutcome::SpawnFailed(err.to_string()),
-        Err(_) => {
-            // SAFETY: `pid` came from a child this process spawned. The
-            // worst case if it has already exited is ESRCH, which is
-            // ignored. The reader thread reaps it via wait_with_output.
-            unsafe {
-                libc::kill(pid, libc::SIGKILL);
+    let deadline = Instant::now() + timeout;
+    let wait_result = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Ok(Some(status)),
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    break Ok(None);
+                }
+                std::thread::sleep(Duration::from_millis(10));
             }
+            Err(err) => break Err(err),
+        }
+    };
+
+    match wait_result {
+        Ok(Some(status)) => {
+            let stdout = stdout_thread.join().unwrap_or_default();
+            let stderr = stderr_thread.join().unwrap_or_default();
+            RunOutcome::Completed(Output {
+                status,
+                stdout,
+                stderr,
+            })
+        }
+        Ok(None) => {
+            // SAFETY: this thread — not a reader thread — has held `child`
+            // unreaped since spawn, so the kernel cannot recycle `pid`
+            // (nor, since `process_group(0)` made it the group leader, the
+            // process group `pid` names) out from under us. `child.wait()`
+            // just below is what finally releases it. `kill(-pid, ...)`
+            // therefore reaches a process group this process still owns,
+            // signalling every descendant that inherited the stdout/stderr
+            // pipes rather than just the direct child.
+            unsafe {
+                libc::kill(-pid, libc::SIGKILL);
+            }
+            let _ = child.wait();
+            let _ = stdout_thread.join();
+            let _ = stderr_thread.join();
             RunOutcome::TimedOut
+        }
+        Err(err) => {
+            let _ = stdout_thread.join();
+            let _ = stderr_thread.join();
+            RunOutcome::SpawnFailed(err.to_string())
         }
     }
 }
@@ -250,6 +304,26 @@ mod tests {
         assert!(
             started.elapsed() < Duration::from_secs(3),
             "should return at the deadline, not wait out the child"
+        );
+    }
+
+    #[test]
+    fn timeout_kills_whole_process_group_not_just_direct_child() {
+        // `cat` inherits the write end of our stdout pipe from the shell
+        // and only exits once `sleep` finishes (closing `cat`'s stdin) or
+        // `cat` itself is signalled. Killing only the direct child (`sh`)
+        // would leave `cat` holding the pipe open, so the reader thread
+        // would never see EOF and this call would block for ~5s instead of
+        // returning at the deadline.
+        let mut cmd = sh("sleep 5 | cat");
+        let started = std::time::Instant::now();
+        match run_with_deadline(&mut cmd, Duration::from_millis(200)) {
+            RunOutcome::TimedOut => {}
+            other => panic!("expected TimedOut, got {other:?}"),
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "should return at the deadline, not hang on a leaked descendant"
         );
     }
 
