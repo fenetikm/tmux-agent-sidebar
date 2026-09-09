@@ -196,6 +196,7 @@ fn pane_nav_up(state: &mut AppState) {
             let at_top = match state.bottom_tab {
                 BottomTab::Activity => state.activity.scroll.offset == 0,
                 BottomTab::GitStatus => state.scrolls.git.offset == 0,
+                BottomTab::Panel => state.scrolls.panel.offset == 0,
             };
             if at_top {
                 state.focus_state.focus = Focus::Panes;

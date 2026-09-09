@@ -17,6 +17,8 @@ pub(super) fn init_state(tmux_pane: String) -> AppState {
     state.bottom_panel_height = ui::bottom_panel_height_from_tmux();
     state.pet_enabled = ui::pet_enabled_from_tmux();
     state.global.load_from_tmux();
+    state.panel_config =
+        crate::panel::PanelConfig::from_options(&crate::tmux::get_all_global_options());
     state.refresh();
 
     super::render::refresh_git_for_focused_pane(&mut state);

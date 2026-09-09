@@ -37,6 +37,9 @@ pub use timers::RefreshTimers;
 pub enum BottomTab {
     Activity,
     GitStatus,
+    /// User-defined panel backed by `@sidebar_panel_command`. Only
+    /// reachable when `AppState::panel_config` is `Some`.
+    Panel,
 }
 
 pub struct AppState {
@@ -134,6 +137,12 @@ pub struct AppState {
     /// Whether the pet animation is drawn and ticked. Loaded once at startup
     /// from the `@sidebar_pet` tmux option. Defaults to `false`.
     pub pet_enabled: bool,
+    /// Resolved `@sidebar_panel_*` configuration. `None` disables the
+    /// custom panel tab entirely — this field is the single source of
+    /// truth for whether the third tab exists.
+    pub panel_config: Option<crate::panel::PanelConfig>,
+    /// Latest custom panel result. `None` until the first run returns.
+    pub panel: Option<crate::panel::PanelData>,
 }
 
 impl AppState {
@@ -181,9 +190,17 @@ impl AppState {
             bottom_panel_height: crate::ui::BOTTOM_PANEL_HEIGHT,
             sessions: SessionNamesState::new(),
             pet_enabled: false,
+            panel_config: None,
+            panel: None,
         };
         crate::state::pet::reseed_pet_idle_motion(&mut state);
         state
+    }
+
+    /// Whether the custom panel tab exists. Prefer this over inspecting
+    /// `panel_config` directly so the rule stays in one place.
+    pub fn panel_enabled(&self) -> bool {
+        self.panel_config.is_some()
     }
 }
 

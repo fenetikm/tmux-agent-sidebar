@@ -106,7 +106,14 @@ impl AppState {
             return TabDecision::Keep;
         };
         if let Some(saved) = self.pane_state(cur_id).and_then(|s| s.tab_pref.as_ref()) {
-            TabDecision::Set(saved.clone())
+            // A pane can hold a preference for the panel tab that was since
+            // removed from config; restoring it would select a tab that no
+            // longer renders.
+            if *saved == BottomTab::Panel && !self.panel_enabled() {
+                TabDecision::Set(BottomTab::GitStatus)
+            } else {
+                TabDecision::Set(saved.clone())
+            }
         } else if new_agent_pane_ids.contains(cur_id) || self.focused_pane_is_agent() {
             // The focused pane is an agent, and there's no saved preference yet.
             TabDecision::Set(BottomTab::Activity)
@@ -128,7 +135,9 @@ impl AppState {
     pub fn next_bottom_tab(&mut self) {
         self.bottom_tab = match self.bottom_tab {
             BottomTab::Activity => BottomTab::GitStatus,
+            BottomTab::GitStatus if self.panel_enabled() => BottomTab::Panel,
             BottomTab::GitStatus => BottomTab::Activity,
+            BottomTab::Panel => BottomTab::Activity,
         };
     }
 
@@ -151,6 +160,7 @@ impl AppState {
         match self.bottom_tab {
             BottomTab::Activity => self.activity.scroll.scroll(delta),
             BottomTab::GitStatus => self.scrolls.git.scroll(delta),
+            BottomTab::Panel => self.scrolls.panel.scroll(delta),
         }
     }
 }
@@ -586,5 +596,74 @@ mod tests {
             BottomTab::Activity,
             "relaunched agent should trigger Activity"
         );
+    }
+
+    // ─── scenario: panel tab ─────────────────────────────────────
+
+    fn panel_config() -> crate::panel::PanelConfig {
+        crate::panel::PanelConfig {
+            command: "echo hi".into(),
+            name: "PRs".into(),
+            interval: std::time::Duration::from_secs(120),
+            timeout: std::time::Duration::from_secs(10),
+        }
+    }
+
+    #[test]
+    fn tab_cycle_skips_panel_when_unconfigured() {
+        let mut state = AppState::new("%99".into());
+        state.bottom_tab = BottomTab::Activity;
+        state.next_bottom_tab();
+        assert_eq!(state.bottom_tab, BottomTab::GitStatus);
+        state.next_bottom_tab();
+        assert_eq!(state.bottom_tab, BottomTab::Activity, "no third tab exists");
+    }
+
+    #[test]
+    fn tab_cycle_includes_panel_when_configured() {
+        let mut state = AppState::new("%99".into());
+        state.panel_config = Some(panel_config());
+        state.bottom_tab = BottomTab::Activity;
+        state.next_bottom_tab();
+        assert_eq!(state.bottom_tab, BottomTab::GitStatus);
+        state.next_bottom_tab();
+        assert_eq!(state.bottom_tab, BottomTab::Panel);
+        state.next_bottom_tab();
+        assert_eq!(state.bottom_tab, BottomTab::Activity);
+    }
+
+    #[test]
+    fn saved_panel_pref_falls_back_when_unconfigured() {
+        let mut state = state_with_groups(vec![agent_group("%1")], Some("%1"));
+        state.pane_state_mut("%1").tab_pref = Some(BottomTab::Panel);
+        state.focus_state.prev_focused_pane_id = Some("%5".into());
+        state.auto_switch_tab();
+        assert_eq!(
+            state.bottom_tab,
+            BottomTab::GitStatus,
+            "a pref for a tab that no longer exists must not be restored"
+        );
+    }
+
+    #[test]
+    fn saved_panel_pref_is_restored_when_configured() {
+        let mut state = state_with_groups(vec![agent_group("%1")], Some("%1"));
+        state.panel_config = Some(panel_config());
+        state.pane_state_mut("%1").tab_pref = Some(BottomTab::Panel);
+        state.focus_state.prev_focused_pane_id = Some("%5".into());
+        state.auto_switch_tab();
+        assert_eq!(state.bottom_tab, BottomTab::Panel);
+    }
+
+    #[test]
+    fn scrolling_the_panel_tab_moves_the_panel_scroll() {
+        let mut state = AppState::new("%99".into());
+        state.panel_config = Some(panel_config());
+        state.bottom_tab = BottomTab::Panel;
+        state.scrolls.panel.total_lines = 50;
+        state.scrolls.panel.visible_height = 10;
+        state.scroll_bottom(3);
+        assert_eq!(state.scrolls.panel.offset, 3);
+        assert_eq!(state.scrolls.git.offset, 0, "git scroll must be untouched");
     }
 }
