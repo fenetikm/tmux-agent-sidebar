@@ -20,6 +20,17 @@ Most options must be set **before** loading the plugin in your `tmux.conf`. Colo
 | `@sidebar_notifications_events`  | unset   | Restrict events — see [Notifications](/tmux-agent-sidebar/features/notifications/)       |
 | `@sidebar_pet`                  | `off`   | Show the animated pet in a 5-row band above the bottom panel                           |
 
+## Custom panel
+
+See [Custom panel](/tmux-agent-sidebar/features/custom-panel/) for the full script contract (environment variables, row schema, caching).
+
+| Option                       | Default | Description                                                                                                            |
+| ----------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------- |
+| `@sidebar_panel_command`     | unset   | Shell command whose NDJSON output fills a third bottom-panel tab. Unset means no tab at all. Runs via `sh -c` with the focused pane's repository root as its working directory. |
+| `@sidebar_panel_name`        | `Custom`| Title of the custom panel tab.                                                                                        |
+| `@sidebar_panel_interval`    | `120`   | Seconds between runs, while the tab is visible. Values below 1 or unparsable fall back to the default.               |
+| `@sidebar_panel_timeout`     | `10`    | Seconds before the command is killed.                                                                                 |
+
 ## Worktree spawn defaults
 
 | Option                            | Default     | Description                                               |

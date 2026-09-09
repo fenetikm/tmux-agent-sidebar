@@ -1,0 +1,105 @@
+---
+title: Custom panel
+description: Feed your own script's NDJSON output into an optional third bottom-panel tab.
+---
+
+The bottom panel can grow an optional third tab that runs your own shell command on an interval and renders its output as rows. Set `@sidebar_panel_command` to enable it — unset, the tab does not exist at all: no tab, no worker thread, no subprocess.
+
+```tmux
+set -g @sidebar_panel_command "gh pr list --json number,title,url | jq -c '.[] | {text: .title, url: .url}'"
+```
+
+## Options
+
+| Option                    | Default | Description                                                              |
+| -------------------------- | ------- | -------------------------------------------------------------------------- |
+| `@sidebar_panel_command`   | unset   | Shell command whose NDJSON output fills the tab. Unset disables the feature entirely. |
+| `@sidebar_panel_name`      | `Custom`| Title of the tab.                                                        |
+| `@sidebar_panel_interval`  | `120`   | Seconds between runs, while the tab is visible.                          |
+| `@sidebar_panel_timeout`   | `10`    | Seconds before the command is killed.                                    |
+
+`@sidebar_panel_interval` and `@sidebar_panel_timeout` accept positive whole seconds only; missing, malformed, or zero values fall back to the default.
+
+## The script contract
+
+The command runs as `sh -c "<command>"`, so pipelines, `jq`, and shell operators all work as expected. Its working directory is the resolved repository root of the focused pane — not the pane's own cwd — falling back to the pane's own path when it isn't inside a repository.
+
+Exactly four environment variables are set:
+
+| Variable            | Value                                                    |
+| -------------------- | --------------------------------------------------------- |
+| `SIDEBAR_REPO_PATH`  | Resolved repository root (also the working directory)   |
+| `SIDEBAR_BRANCH`     | Current branch of the focused pane                       |
+| `SIDEBAR_PANE_ID`    | tmux pane ID of the focused pane                         |
+| `SIDEBAR_SESSION`    | tmux session name                                         |
+
+That's deliberately all — there is no `SIDEBAR_AGENT`. Anything else the sidebar knows about a pane is one of the per-pane tmux options the hooks already write (see [Scripting](/tmux-agent-sidebar/reference/scripting/)), and it's reachable through `SIDEBAR_PANE_ID`:
+
+```sh
+agent=$(tmux show -pt "$SIDEBAR_PANE_ID" -v @pane_agent)
+status=$(tmux show -pt "$SIDEBAR_PANE_ID" -v @pane_status)
+```
+
+## Row schema
+
+Output NDJSON on stdout — one JSON object per line:
+
+| Field         | Required | Description                                                          |
+| ------------- | -------- | ---------------------------------------------------------------------- |
+| `text`        | yes      | Row label. A row without it is skipped.                              |
+| `text_color`  | no       | See [Colors](#colors) below.                                         |
+| `icon`        | no       | Leading glyph, truncated to two display cells.                       |
+| `icon_color`  | no       | Defaults to `text_color`.                                            |
+| `url`         | no       | Turns the row into a clickable hyperlink.                            |
+| `heading`     | no       | Renders the row as a section label; `icon` and `url` are ignored when set. |
+
+Unknown fields are ignored, so scripts keep working as the schema grows.
+
+Each line is parsed independently — one malformed line is skipped without affecting the rest. An error is reported only when every line in the output fails to parse.
+
+## Colors
+
+`text_color` and `icon_color` accept a small closed vocabulary: `default`, `muted`, `accent`, `success`, `warning`, `danger`. These resolve through the active theme, so panel rows follow the same palette as the rest of the sidebar. An unrecognized name falls back to `default` rather than failing the row.
+
+## Failure behavior
+
+- **Before the first result** — the tab shows `Loading…`.
+- **A successful run with no rows** — the tab shows `No rows`.
+- **A failed run** — the last good rows stay on screen, with the error on the bottom line, e.g. `exit 1: gh: not found` or `timed out after 10s`.
+
+## Links
+
+A row with a `url` renders as a terminal hyperlink (OSC 8). Whether it's clickable depends on your terminal emulator; the sidebar does not open a browser or otherwise handle the click itself.
+
+## Polling and caching
+
+The command only runs while its tab is visible, on the configured interval, on a background thread. Results are cached per repository root within the sidebar process, so switching between panes in the same repo does not re-run the command.
+
+That per-process cache does **not** protect you across windows: the sidebar runs one process per tmux window. Ten windows on the same repo means ten independent sidebar processes, each polling the command on its own schedule — an uncached script that calls the network gets invoked once per sidebar per interval, so ten `gh` calls, not one. Deduplicating calls across invocations is the script's job; the sidebar has no way to know what's safe to share.
+
+Cache the expensive part yourself, keyed by `$SIDEBAR_REPO_PATH`:
+
+```sh
+#!/bin/sh
+# Cache gh output for 5 minutes, keyed by repo.
+cache="/tmp/sidebar-prs-$(id -u)-$(echo "$SIDEBAR_REPO_PATH" | cksum | cut -d' ' -f1)"
+if [ -f "$cache" ] && [ "$(find "$cache" -mmin -5)" ]; then
+  cat "$cache"
+  exit 0
+fi
+gh pr list --json number,title,url,isDraft,reviewDecision \
+  | jq -c '.[] | {
+      text: "#\(.number) \(.title)",
+      url: .url,
+      icon: (if .isDraft then "◌" elif .reviewDecision == "APPROVED" then "✓" else "•" end),
+      icon_color: (if .isDraft then "muted" elif .reviewDecision == "APPROVED" then "success" else "accent" end)
+    }' > "$cache.tmp" && mv "$cache.tmp" "$cache"
+cat "$cache"
+```
+
+Save it somewhere on `PATH` (or reference it by full path) and point `@sidebar_panel_command` at it:
+
+```tmux
+set -g @sidebar_panel_command "~/bin/sidebar-prs.sh"
+set -g @sidebar_panel_name "PRs"
+```
