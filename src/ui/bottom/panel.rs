@@ -74,17 +74,25 @@ pub(super) fn draw_panel_content(frame: &mut Frame, state: &mut AppState, inner:
         return;
     }
 
+    // With no room at all (e.g. `@sidebar_bottom_height` set to 1 or 2), the
+    // error footer would otherwise land on the row the outer block already
+    // used for its bottom border. Bail before touching anything.
+    if inner.height == 0 {
+        return;
+    }
+
     // Reserve the last line for the error footer when there is one.
     let error_height = u16::from(data.error.is_some());
     let rows_height = inner.height.saturating_sub(error_height);
 
     state.scrolls.panel.total_lines = data.rows.len();
     state.scrolls.panel.visible_height = rows_height as usize;
-    let offset = state
-        .scrolls
-        .panel
-        .offset
-        .min(data.rows.len().saturating_sub(1));
+    // Clamp `offset` to the new viewport and persist it. Without this,
+    // shrinking content (e.g. rows drop between fetches) can leave a stale
+    // offset that skips past all remaining rows, and the next frame would
+    // re-derive the wrong clamp again since nothing was ever written back.
+    state.scrolls.panel.scroll(0);
+    let offset = state.scrolls.panel.offset;
 
     let mut lines: Vec<Line<'static>> = Vec::new();
     let mut overlays: Vec<HyperlinkOverlay> = Vec::new();

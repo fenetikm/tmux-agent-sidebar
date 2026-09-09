@@ -163,6 +163,44 @@ fn rows_with_urls_register_hyperlink_overlays() {
 }
 
 #[test]
+fn error_footer_does_not_overwrite_the_bottom_border_when_the_panel_has_no_room() {
+    // `@sidebar_bottom_height` of 2 leaves a Block::inner height of 0 (both
+    // rows are consumed by the top/bottom border lines drawn by
+    // draw_bottom). Regression test for the error footer landing on the
+    // row already used for the box's `╰───╯` bottom border.
+    let mut state = state_with(
+        vec![row("#412 stale but useful")],
+        Some("exit 1: gh: not found"),
+    );
+    state.bottom_panel_height = 2;
+    insta::assert_snapshot!(render_to_string(&mut state, 28, 24), @"
+     ≡0  ●0  ◎0  ◐0  ○0  ✕0
+                             — ▾
+    ╭ Activity │ Git │ PRs ────╮
+    ╰──────────────────────────╯
+    ");
+}
+
+#[test]
+fn scroll_offset_reclamps_when_rows_shrink_between_fetches() {
+    // Regression test: a stale large offset (from when there were many
+    // rows) must not survive a fetch that shrinks the row count, or the
+    // panel shows one row plus blank space instead of all rows.
+    let rows = vec![row("row 1"), row("row 2"), row("row 3")];
+    let mut state = state_with(rows, None);
+    state.scrolls.panel.offset = 10;
+    insta::assert_snapshot!(render(&mut state), @"
+     ≡0  ●0  ◎0  ◐0  ○0  ✕0
+                             — ▾
+    ╭ Activity │ Git │ PRs ────╮
+    │row 1                     │
+    │row 2                     │
+    │row 3                     │
+    ╰──────────────────────────╯
+    ");
+}
+
+#[test]
 fn scrolled_rows_start_from_the_offset() {
     let rows: Vec<PanelRow> = (1..=20).map(|n| row(&format!("row {n}"))).collect();
     let mut state = state_with(rows, None);
@@ -171,6 +209,9 @@ fn scrolled_rows_start_from_the_offset() {
      ≡0  ●0  ◎0  ◐0  ○0  ✕0
                              — ▾
     ╭ Activity │ Git │ PRs ────╮
+    │row 3                     │
+    │row 4                     │
+    │row 5                     │
     │row 6                     │
     │row 7                     │
     │row 8                     │
@@ -187,5 +228,95 @@ fn scrolled_rows_start_from_the_offset() {
     │row 19                    │
     │row 20                    │
     ╰──────────────────────────╯
+    ");
+}
+
+#[test]
+fn colors_map_rows_and_headings_onto_the_expected_theme_fields() {
+    // render_to_string drops style info, so it cannot catch a regression in
+    // `color_for`'s mapping. This asserts the styled buffer instead, one row
+    // per `PanelColor` variant plus a heading, so a future edit to the
+    // mapping (Default->text_active, Muted->text_muted, Accent->accent,
+    // Success->status_running, Warning->status_waiting, Danger->status_error,
+    // headings->section_title) would fail here.
+    let rows = vec![
+        PanelRow {
+            text: "Heading".into(),
+            text_color: PanelColor::Default,
+            icon: None,
+            icon_color: PanelColor::Default,
+            url: None,
+            heading: true,
+        },
+        PanelRow {
+            text: "default".into(),
+            text_color: PanelColor::Default,
+            icon: Some("*".into()),
+            icon_color: PanelColor::Default,
+            url: None,
+            heading: false,
+        },
+        PanelRow {
+            text: "muted".into(),
+            text_color: PanelColor::Muted,
+            icon: Some("*".into()),
+            icon_color: PanelColor::Muted,
+            url: None,
+            heading: false,
+        },
+        PanelRow {
+            text: "accent".into(),
+            text_color: PanelColor::Accent,
+            icon: Some("*".into()),
+            icon_color: PanelColor::Accent,
+            url: None,
+            heading: false,
+        },
+        PanelRow {
+            text: "success".into(),
+            text_color: PanelColor::Success,
+            icon: Some("*".into()),
+            icon_color: PanelColor::Success,
+            url: None,
+            heading: false,
+        },
+        PanelRow {
+            text: "warning".into(),
+            text_color: PanelColor::Warning,
+            icon: Some("*".into()),
+            icon_color: PanelColor::Warning,
+            url: None,
+            heading: false,
+        },
+        PanelRow {
+            text: "danger".into(),
+            text_color: PanelColor::Danger,
+            icon: Some("*".into()),
+            icon_color: PanelColor::Danger,
+            url: None,
+            heading: false,
+        },
+    ];
+    // Use a short bottom panel (9 rows -> inner height 7, one per row here)
+    // so the styled snapshot has no trailing blank bordered rows to pad it
+    // out — buffer_to_styled_string keeps every cell's style, unlike the
+    // plain-text helper used by the other tests in this file, which drops
+    // blank bordered rows.
+    let mut state = state_with(rows, None);
+    state.bottom_panel_height = 9;
+    insta::assert_snapshot!(render_to_styled_string(&mut state, 28, 13), @"
+     ≡[fg:111]0[fg:245]  ●[fg:245]0[fg:245]  ◎[fg:245]0[fg:245]  ◐[fg:245]0[fg:245]  ○[fg:245]0[fg:245]  ✕[fg:245]0[fg:245]
+                             —[fg:252] ▾[fg:252]
+
+
+    ╭[fg:240] [fg:240]A[fg:252]c[fg:252]t[fg:252]i[fg:252]v[fg:252]i[fg:252]t[fg:252]y[fg:252] [fg:240]│[fg:240] [fg:240]G[fg:252]i[fg:252]t[fg:252] [fg:240]│[fg:240] [fg:240]P[fg:153]R[fg:153]s[fg:153] [fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]╮[fg:240]
+    │[fg:240]H[fg:109]e[fg:109]a[fg:109]d[fg:109]i[fg:109]n[fg:109]g[fg:109] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240]│[fg:240]
+    │[fg:240]*[fg:255] [fg:240]d[fg:255]e[fg:255]f[fg:255]a[fg:255]u[fg:255]l[fg:255]t[fg:255] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240]│[fg:240]
+    │[fg:240]*[fg:252] [fg:240]m[fg:252]u[fg:252]t[fg:252]e[fg:252]d[fg:252] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240]│[fg:240]
+    │[fg:240]*[fg:153] [fg:240]a[fg:153]c[fg:153]c[fg:153]e[fg:153]n[fg:153]t[fg:153] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240]│[fg:240]
+    │[fg:240]*[fg:114] [fg:240]s[fg:114]u[fg:114]c[fg:114]c[fg:114]e[fg:114]s[fg:114]s[fg:114] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240]│[fg:240]
+    │[fg:240]*[fg:221] [fg:240]w[fg:221]a[fg:221]r[fg:221]n[fg:221]i[fg:221]n[fg:221]g[fg:221] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240]│[fg:240]
+    │[fg:240]*[fg:167] [fg:240]d[fg:167]a[fg:167]n[fg:167]g[fg:167]e[fg:167]r[fg:167] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240]│[fg:240]
+    ╰[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]╯[fg:240]
     ");
 }
