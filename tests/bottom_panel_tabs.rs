@@ -66,7 +66,7 @@ fn tab_bar_renders_the_custom_panel_name() {
      ≡0  ●0  ◎0  ◐0  ○0  ✕0
                              — ▾
     ╭ Activity │ Git │ PRs ────╮
-    │       No panel data      │
+    │         Loading…         │
     ╰──────────────────────────╯
     ");
 }

@@ -1,5 +1,6 @@
 mod activity;
 mod git;
+mod panel;
 
 use ratatui::{
     Frame,
@@ -81,7 +82,7 @@ pub fn draw_bottom(frame: &mut Frame, state: &mut AppState, area: Rect) {
     match state.bottom_tab {
         BottomTab::Activity => activity::draw_activity_content(frame, state, inner),
         BottomTab::GitStatus => git::draw_git_content(frame, state, inner),
-        BottomTab::Panel => render_centered(frame, inner, "No panel data", theme.text_muted),
+        BottomTab::Panel => panel::draw_panel_content(frame, state, inner),
     }
 }
 
