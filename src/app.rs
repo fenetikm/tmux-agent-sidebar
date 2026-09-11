@@ -40,6 +40,8 @@ pub fn run(
         version_rx,
         git_tab_active,
         git_poll_now,
+        panel_rx,
+        panel_tab_active,
     } = workers;
 
     let mut last_refresh = std::time::Instant::now();
@@ -123,11 +125,19 @@ pub fn run(
                 window_inactive_count = window_inactive_count.saturating_add(1);
             }
             git_tab_active.store(state.bottom_tab == BottomTab::GitStatus, Ordering::Relaxed);
+            panel_tab_active.store(state.bottom_tab == BottomTab::Panel, Ordering::Relaxed);
             last_refresh = std::time::Instant::now();
         }
 
         if let Ok(data) = git_rx.try_recv() {
             state.apply_git_data(data);
+            needs_redraw = true;
+        }
+
+        if let Some(ref rx) = panel_rx
+            && let Ok(data) = rx.try_recv()
+        {
+            state.panel = Some(data);
             needs_redraw = true;
         }
 

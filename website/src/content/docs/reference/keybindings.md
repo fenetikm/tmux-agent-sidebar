@@ -17,7 +17,7 @@ description: Every shortcut in the sidebar, the worktree spawn modal, and the cl
 | `c`            | Toggle compact rows (two lines per agent)                     |
 | `Enter`        | Jump to the selected pane                                     |
 | `Tab`          | Cycle status filter                                           |
-| `Shift+Tab`    | Switch bottom panel tab (Activity ⇄ Git)                      |
+| `Shift+Tab`    | Switch bottom panel tab (Activity ⇄ Git, plus an optional Custom tab) |
 | `Esc`          | Return focus or close the popup                               |
 
 ## Optional tmux bindings

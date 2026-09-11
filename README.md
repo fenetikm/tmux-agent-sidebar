@@ -22,6 +22,8 @@
   — bind keys to jump to the next or previous running agent globally or within the current session
 - **Desktop notifications** 
   — native alerts when an agent finishes, needs permission, or errors out
+- **Custom panel** 
+  — point `@sidebar_panel_command` at any script and its NDJSON output fills an optional third bottom-panel tab
 
 OpenCode uses a small local plugin bridge instead of per-event hook config. The plugin lives at `.opencode/plugins/tmux-agent-sidebar.js` and can be symlinked as a single file into `~/.config/opencode/plugins/` so it coexists with any existing plugins.
 
@@ -109,7 +111,7 @@ The [documentation site](https://hiroppy.github.io/tmux-agent-sidebar/) covers e
 
 - [Agent pane breakdown](https://hiroppy.github.io/tmux-agent-sidebar/features/agent-pane/)
 - [Worktree lifecycle](https://hiroppy.github.io/tmux-agent-sidebar/features/worktree/)
-- [Activity log](https://hiroppy.github.io/tmux-agent-sidebar/features/activity-log/) · [Git tab](https://hiroppy.github.io/tmux-agent-sidebar/features/git-status/) · [Notifications](https://hiroppy.github.io/tmux-agent-sidebar/features/notifications/)
+- [Activity log](https://hiroppy.github.io/tmux-agent-sidebar/features/activity-log/) · [Git tab](https://hiroppy.github.io/tmux-agent-sidebar/features/git-status/) · [Custom panel](https://hiroppy.github.io/tmux-agent-sidebar/features/custom-panel/) · [Notifications](https://hiroppy.github.io/tmux-agent-sidebar/features/notifications/)
 - [Agent support matrix](https://hiroppy.github.io/tmux-agent-sidebar/agents/)
 - [Keybindings](https://hiroppy.github.io/tmux-agent-sidebar/reference/keybindings/) · [tmux options](https://hiroppy.github.io/tmux-agent-sidebar/reference/tmux-options/) · [Scripting](https://hiroppy.github.io/tmux-agent-sidebar/reference/scripting/)
 

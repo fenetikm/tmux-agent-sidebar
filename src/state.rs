@@ -23,7 +23,8 @@ pub use filter::{RepoFilter, StatusFilter};
 pub use focus::{Focus, FocusState};
 pub use global::GlobalState;
 pub use layout::{
-    FrameLayout, HyperlinkOverlay, RepoSpawnTarget, RowTarget, SessionJumpTarget, SpawnRemoveTarget,
+    BottomTabTarget, FrameLayout, HyperlinkOverlay, RepoSpawnTarget, RowTarget, SessionJumpTarget,
+    SpawnRemoveTarget,
 };
 pub(crate) use notices::debug_forced_display;
 pub use notices::{ClaudePluginNotice, NoticesCopyTarget, NoticesMissingHookGroup, NoticesState};
@@ -39,6 +40,9 @@ pub use timers::RefreshTimers;
 pub enum BottomTab {
     Activity,
     GitStatus,
+    /// User-defined panel backed by `@sidebar_panel_command`. Only
+    /// reachable when `AppState::panel_config` is `Some`.
+    Panel,
 }
 
 pub struct AppState {
@@ -166,6 +170,12 @@ pub struct AppState {
     /// Empty unless `show_empty_sessions` is on *and* the list is grouped by
     /// session, so the renderer needs no mode check of its own.
     pub empty_sessions: Vec<String>,
+    /// Resolved `@sidebar_panel_*` configuration. `None` disables the
+    /// custom panel tab entirely — this field is the single source of
+    /// truth for whether the third tab exists.
+    pub panel_config: Option<crate::panel::PanelConfig>,
+    /// Latest custom panel result. `None` until the first run returns.
+    pub panel: Option<crate::panel::PanelData>,
 }
 
 impl AppState {
@@ -221,6 +231,8 @@ impl AppState {
             sort_mode: crate::group::SortMode::Repository,
             show_empty_sessions: false,
             empty_sessions: vec![],
+            panel_config: None,
+            panel: None,
         };
         crate::state::pet::reseed_pet_idle_motion(&mut state);
         state
@@ -295,6 +307,12 @@ impl AppState {
     /// Panel-relative row index where agent list rows begin.
     pub fn list_start_row(&self) -> u16 {
         self.agents_header_row_count()
+    }
+
+    /// Whether the custom panel tab exists. Prefer this over inspecting
+    /// `panel_config` directly so the rule stays in one place.
+    pub fn panel_enabled(&self) -> bool {
+        self.panel_config.is_some()
     }
 }
 

@@ -123,6 +123,17 @@ pub const SIDEBAR_EXCLUDE_SESSIONS: &str = "@sidebar_exclude_sessions";
 /// => no exclusions. Manual `toggle` (the `e` key) ignores this list.
 pub const SIDEBAR_EXCLUDE_WINDOWS: &str = "@sidebar_exclude_windows";
 
+/// Shell command whose NDJSON output fills the custom bottom panel tab.
+/// Unset disables the feature entirely: no tab, no worker thread.
+pub const SIDEBAR_PANEL_COMMAND: &str = "@sidebar_panel_command";
+/// Title of the custom bottom panel tab. Defaults to `Custom`.
+pub const SIDEBAR_PANEL_NAME: &str = "@sidebar_panel_name";
+/// Seconds between runs of `@sidebar_panel_command` while its tab is
+/// visible. Defaults to 120.
+pub const SIDEBAR_PANEL_INTERVAL: &str = "@sidebar_panel_interval";
+/// Seconds before `@sidebar_panel_command` is killed. Defaults to 10.
+pub const SIDEBAR_PANEL_TIMEOUT: &str = "@sidebar_panel_timeout";
+
 pub const SIDEBAR_COLOR_ACCENT: &str = "@sidebar_color_accent";
 pub const SIDEBAR_COLOR_BORDER: &str = "@sidebar_color_border";
 pub const SIDEBAR_COLOR_ALL: &str = "@sidebar_color_all";

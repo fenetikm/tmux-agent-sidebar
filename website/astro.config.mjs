@@ -109,6 +109,7 @@ export default defineConfig({
             { slug: 'features/worktree' },
             { slug: 'features/activity-log' },
             { slug: 'features/git-status' },
+            { slug: 'features/custom-panel' },
             { slug: 'features/notifications' },
             { slug: 'features/pet' },
           ],
