@@ -46,7 +46,9 @@ impl AppState {
             && new_agent_pane_ids.contains(fid)
         {
             // Agent started in the currently focused pane.
-            return TabDecision::Set(BottomTab::Activity);
+            if self.show_activity_tab {
+                return TabDecision::Set(BottomTab::Activity);
+            }
         }
 
         TabDecision::Keep
@@ -105,20 +107,26 @@ impl AppState {
         let Some(ref cur_id) = self.focus_state.focused_pane_id else {
             return TabDecision::Keep;
         };
-        if let Some(saved) = self.pane_state(cur_id).and_then(|s| s.tab_pref.as_ref()) {
-            // A pane can hold a preference for the panel tab that was since
-            // removed from config; restoring it would select a tab that no
-            // longer renders.
-            if *saved == BottomTab::Panel && !self.panel_enabled() {
-                TabDecision::Set(BottomTab::GitStatus)
-            } else {
-                TabDecision::Set(saved.clone())
-            }
-        } else if new_agent_pane_ids.contains(cur_id) || self.focused_pane_is_agent() {
-            // The focused pane is an agent, and there's no saved preference yet.
-            TabDecision::Set(BottomTab::Activity)
+        let enabled = self.enabled_bottom_tabs();
+        // A pane can hold a preference for a tab that has since been turned
+        // off; restoring it would select a tab that no longer renders.
+        if let Some(saved) = self.pane_state(cur_id).and_then(|s| s.tab_pref.as_ref())
+            && enabled.contains(saved)
+        {
+            return TabDecision::Set(saved.clone());
+        }
+        let preferred = if new_agent_pane_ids.contains(cur_id) || self.focused_pane_is_agent() {
+            // The focused pane is an agent, and there's no usable preference.
+            BottomTab::Activity
         } else {
-            TabDecision::Set(BottomTab::GitStatus)
+            BottomTab::GitStatus
+        };
+        if enabled.contains(&preferred) {
+            TabDecision::Set(preferred)
+        } else if let Some(first) = enabled.first() {
+            TabDecision::Set(first.clone())
+        } else {
+            TabDecision::Keep
         }
     }
 
@@ -132,13 +140,49 @@ impl AppState {
             .any(|g| g.panes.iter().any(|(p, _)| p.pane_id == *fid))
     }
 
+    /// The bottom tabs that currently exist, in display order.
+    ///
+    /// Every other tab decision — the title bar, the cycle order, which tab a
+    /// pane falls back to — reads this, so "does this tab exist?" is answered
+    /// in exactly one place. Empty when the user has turned all three off,
+    /// which the renderer treats as `@sidebar_bottom_height 0`.
+    pub fn enabled_bottom_tabs(&self) -> Vec<BottomTab> {
+        let mut tabs = Vec::with_capacity(3);
+        if self.show_activity_tab {
+            tabs.push(BottomTab::Activity);
+        }
+        if self.show_git_tab {
+            tabs.push(BottomTab::GitStatus);
+        }
+        if self.panel_enabled() {
+            tabs.push(BottomTab::Panel);
+        }
+        tabs
+    }
+
+    /// Move off the current tab if it no longer exists. The toggles are
+    /// re-read on every layout sync, so the tab under the cursor can be
+    /// switched off from under it; without this the panel would render
+    /// content whose title is no longer in the tab bar.
+    pub fn clamp_bottom_tab(&mut self) {
+        let enabled = self.enabled_bottom_tabs();
+        if enabled.is_empty() || enabled.contains(&self.bottom_tab) {
+            return;
+        }
+        self.bottom_tab = enabled[0].clone();
+    }
+
     pub fn next_bottom_tab(&mut self) {
-        self.bottom_tab = match self.bottom_tab {
-            BottomTab::Activity => BottomTab::GitStatus,
-            BottomTab::GitStatus if self.panel_enabled() => BottomTab::Panel,
-            BottomTab::GitStatus => BottomTab::Activity,
-            BottomTab::Panel => BottomTab::Activity,
+        let enabled = self.enabled_bottom_tabs();
+        let Some(current) = enabled.iter().position(|t| *t == self.bottom_tab) else {
+            // Current tab is gone; the clamp will have moved us already, but
+            // a cycle before the next sync should still land somewhere real.
+            if let Some(first) = enabled.first() {
+                self.bottom_tab = first.clone();
+            }
+            return;
         };
+        self.bottom_tab = enabled[(current + 1) % enabled.len()].clone();
     }
 
     /// Handle a mouse click on the bottom panel's tab header.
@@ -642,11 +686,10 @@ mod tests {
         state.pane_state_mut("%1").tab_pref = Some(BottomTab::Panel);
         state.focus_state.prev_focused_pane_id = Some("%5".into());
         state.auto_switch_tab();
-        assert_eq!(
-            state.bottom_tab,
-            BottomTab::GitStatus,
-            "a pref for a tab that no longer exists must not be restored"
-        );
+        // A preference for a tab that no longer exists is not restored; the
+        // pane falls back to the tab it would have got with no preference at
+        // all, which for an agent pane is Activity.
+        assert_eq!(state.bottom_tab, BottomTab::Activity);
     }
 
     #[test]
@@ -669,5 +712,113 @@ mod tests {
         state.scroll_bottom(3);
         assert_eq!(state.scrolls.panel.offset, 3);
         assert_eq!(state.scrolls.git.offset, 0, "git scroll must be untouched");
+    }
+
+    // ─── scenario: disabled Activity / Git tabs ──────────────────
+
+    #[test]
+    fn enabled_bottom_tabs_defaults_to_activity_and_git() {
+        let state = AppState::new("%99".into());
+        assert_eq!(
+            state.enabled_bottom_tabs(),
+            vec![BottomTab::Activity, BottomTab::GitStatus]
+        );
+    }
+
+    #[test]
+    fn enabled_bottom_tabs_includes_panel_when_configured() {
+        let mut state = AppState::new("%99".into());
+        state.panel_config = Some(panel_config());
+        assert_eq!(
+            state.enabled_bottom_tabs(),
+            vec![BottomTab::Activity, BottomTab::GitStatus, BottomTab::Panel]
+        );
+    }
+
+    #[test]
+    fn enabled_bottom_tabs_omits_the_disabled_ones() {
+        let mut state = AppState::new("%99".into());
+        state.show_activity_tab = false;
+        state.panel_config = Some(panel_config());
+        assert_eq!(
+            state.enabled_bottom_tabs(),
+            vec![BottomTab::GitStatus, BottomTab::Panel]
+        );
+    }
+
+    #[test]
+    fn enabled_bottom_tabs_is_empty_when_everything_is_off() {
+        let mut state = AppState::new("%99".into());
+        state.show_activity_tab = false;
+        state.show_git_tab = false;
+        assert!(state.enabled_bottom_tabs().is_empty());
+    }
+
+    #[test]
+    fn tab_cycle_skips_a_disabled_tab() {
+        let mut state = AppState::new("%99".into());
+        state.show_activity_tab = false;
+        state.panel_config = Some(panel_config());
+        state.bottom_tab = BottomTab::GitStatus;
+        state.next_bottom_tab();
+        assert_eq!(state.bottom_tab, BottomTab::Panel);
+        state.next_bottom_tab();
+        assert_eq!(
+            state.bottom_tab,
+            BottomTab::GitStatus,
+            "Activity is skipped"
+        );
+    }
+
+    #[test]
+    fn tab_cycle_is_a_noop_with_one_enabled_tab() {
+        let mut state = AppState::new("%99".into());
+        state.show_activity_tab = false;
+        state.bottom_tab = BottomTab::GitStatus;
+        state.next_bottom_tab();
+        assert_eq!(state.bottom_tab, BottomTab::GitStatus);
+    }
+
+    #[test]
+    fn saved_pref_for_a_disabled_tab_falls_back() {
+        let mut state = state_with_groups(vec![agent_group("%1")], Some("%1"));
+        state.show_activity_tab = false;
+        state.pane_state_mut("%1").tab_pref = Some(BottomTab::Activity);
+        state.focus_state.prev_focused_pane_id = Some("%5".into());
+        state.auto_switch_tab();
+        assert_eq!(state.bottom_tab, BottomTab::GitStatus);
+    }
+
+    #[test]
+    fn agent_pane_falls_back_to_git_when_activity_is_off() {
+        let mut state = state_with_groups(vec![agent_group("%1")], Some("%1"));
+        state.show_activity_tab = false;
+        state.auto_switch_tab();
+        assert_eq!(state.bottom_tab, BottomTab::GitStatus);
+    }
+
+    #[test]
+    fn non_agent_pane_falls_back_to_activity_when_git_is_off() {
+        let mut state = state_with_groups(vec![agent_group("%1")], Some("%5"));
+        state.show_git_tab = false;
+        state.auto_switch_tab();
+        assert_eq!(state.bottom_tab, BottomTab::Activity);
+    }
+
+    #[test]
+    fn clamp_moves_off_a_tab_that_was_just_disabled() {
+        let mut state = AppState::new("%99".into());
+        state.bottom_tab = BottomTab::GitStatus;
+        state.show_git_tab = false;
+        state.clamp_bottom_tab();
+        assert_eq!(state.bottom_tab, BottomTab::Activity);
+    }
+
+    #[test]
+    fn clamp_leaves_an_enabled_tab_alone() {
+        let mut state = AppState::new("%99".into());
+        state.bottom_tab = BottomTab::GitStatus;
+        state.clamp_bottom_tab();
+        assert_eq!(state.bottom_tab, BottomTab::GitStatus);
     }
 }

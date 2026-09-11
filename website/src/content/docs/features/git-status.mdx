@@ -37,3 +37,11 @@ Status letters:
 Each section lists up to 10 entries and collapses the rest into a `+N more` row.
 
 Git data is refreshed from a background polling thread, so interaction with the sidebar stays snappy even in repositories with slow git operations.
+
+## Hiding the tab
+
+```tmux
+set -g @sidebar_show_git_tab off
+```
+
+The tab leaves the tab bar, `Shift+Tab` cycles what remains, and any pane parked on Git moves to the next tab that exists. See [Activity log](/tmux-agent-sidebar/features/activity-log/#hiding-the-tab) for the matching `@sidebar_show_activity_tab`, and what happens when every tab is off.

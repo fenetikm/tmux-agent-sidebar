@@ -70,3 +70,56 @@ fn tab_bar_renders_the_custom_panel_name() {
     ╰──────────────────────────╯
     ");
 }
+
+#[test]
+fn tab_bar_omits_the_activity_tab_when_disabled() {
+    let mut state = AppState::new("%99".into());
+    state.show_activity_tab = false;
+    state.panel_config = Some(panel_config("PRs"));
+    state.bottom_tab = BottomTab::GitStatus;
+    insta::assert_snapshot!(render_to_string(&mut state, 28, 24), @"
+     ≡0  ●0  ◎0  ◐0  ○0  ✕0
+                             — ▾
+    ╭ Git │ PRs ───────────────╮
+    │    Working tree clean    │
+    ╰──────────────────────────╯
+    ");
+}
+
+#[test]
+fn tab_bar_shows_only_the_panel_when_activity_and_git_are_off() {
+    let mut state = AppState::new("%99".into());
+    state.show_activity_tab = false;
+    state.show_git_tab = false;
+    state.panel_config = Some(panel_config("PRs"));
+    state.bottom_tab = BottomTab::Panel;
+    insta::assert_snapshot!(render_to_string(&mut state, 28, 24), @"
+     ≡0  ●0  ◎0  ◐0  ○0  ✕0
+                             — ▾
+    ╭ PRs ─────────────────────╮
+    │         Loading…         │
+    ╰──────────────────────────╯
+    ");
+}
+
+#[test]
+fn bottom_panel_is_not_drawn_when_every_tab_is_off() {
+    let mut state = AppState::new("%99".into());
+    state.show_activity_tab = false;
+    state.show_git_tab = false;
+    insta::assert_snapshot!(render_to_string(&mut state, 28, 24), @"
+    ≡0  ●0  ◎0  ◐0  ○0  ✕0
+                            — ▾
+    ");
+}
+
+#[test]
+fn click_targets_follow_the_enabled_tabs() {
+    let mut state = AppState::new("%99".into());
+    state.show_activity_tab = false;
+    let (_, targets) = tmux_agent_sidebar::ui::bottom::build_tab_title(&state);
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0].tab, BottomTab::GitStatus);
+    // Git slides left into the column Activity used to occupy.
+    assert_eq!(targets[0].start, 2);
+}

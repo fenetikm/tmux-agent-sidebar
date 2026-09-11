@@ -96,15 +96,24 @@ pub fn build_tab_title(state: &AppState) -> (Line<'static>, Vec<BottomTabTarget>
     let theme = &state.theme;
     let sep_style = Style::default().fg(theme.border_inactive);
 
-    let mut titles: Vec<(String, BottomTab)> = vec![
-        ("Activity".to_string(), BottomTab::Activity),
-        ("Git".to_string(), BottomTab::GitStatus),
-    ];
-    if state.panel_enabled()
-        && let Some(config) = &state.panel_config
-    {
-        titles.push((config.name.clone(), BottomTab::Panel));
-    }
+    let titles: Vec<(String, BottomTab)> = state
+        .enabled_bottom_tabs()
+        .into_iter()
+        .map(|tab| {
+            let label = match tab {
+                BottomTab::Activity => "Activity".to_string(),
+                BottomTab::GitStatus => "Git".to_string(),
+                // `enabled_bottom_tabs` only yields Panel when the config is
+                // present, so the fallback here is unreachable in practice.
+                BottomTab::Panel => state
+                    .panel_config
+                    .as_ref()
+                    .map(|config| config.name.clone())
+                    .unwrap_or_default(),
+            };
+            (label, tab)
+        })
+        .collect();
 
     // Column 0 is the `╭` border, column 1 the space after it.
     const TITLE_START_COL: u16 = 2;

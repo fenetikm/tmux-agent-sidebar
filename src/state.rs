@@ -170,6 +170,12 @@ pub struct AppState {
     /// Empty unless `show_empty_sessions` is on *and* the list is grouped by
     /// session, so the renderer needs no mode check of its own.
     pub empty_sessions: Vec<String>,
+    /// Whether the bottom panel's Activity tab exists
+    /// (`@sidebar_show_activity_tab`). Re-read on every layout sync.
+    pub show_activity_tab: bool,
+    /// Whether the bottom panel's Git tab exists (`@sidebar_show_git_tab`).
+    /// Re-read on every layout sync.
+    pub show_git_tab: bool,
     /// Resolved `@sidebar_panel_*` configuration. `None` disables the
     /// custom panel tab entirely — this field is the single source of
     /// truth for whether the third tab exists.
@@ -231,6 +237,8 @@ impl AppState {
             sort_mode: crate::group::SortMode::Repository,
             show_empty_sessions: false,
             empty_sessions: vec![],
+            show_activity_tab: true,
+            show_git_tab: true,
             panel_config: None,
             panel: None,
         };
@@ -274,6 +282,7 @@ impl AppState {
         let prev_hide_filter = self.hide_filter_bar;
         let prev_hide_repo = self.hide_repo_filter;
         crate::ui::apply_sidebar_ui_options(self, &opts);
+        self.clamp_bottom_tab();
         // Re-read through `show -gv` so a tab-separated bulk line cannot
         // leave the hide flags stale.
         self.hide_filter_bar = crate::ui::hide_filter_bar_from_tmux();

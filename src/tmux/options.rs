@@ -103,6 +103,13 @@ pub const SIDEBAR_HIDE_REPO_FILTER: &str = "@sidebar_hide_repo_filter";
 /// Read on every refresh, so a live `tmux set -g` takes effect on the next
 /// cycle. Any unrecognised value means `repository`.
 pub const SIDEBAR_SORTING: &str = "@sidebar_sorting";
+/// Show the bottom panel's Activity tab. On by default. Re-read on every
+/// layout sync, so a live `tmux set -g` takes effect on the next cycle.
+pub const SIDEBAR_SHOW_ACTIVITY_TAB: &str = "@sidebar_show_activity_tab";
+/// Show the bottom panel's Git tab. On by default, and re-read like
+/// [`SIDEBAR_SHOW_ACTIVITY_TAB`]. With every tab off the bottom panel is not
+/// drawn at all, exactly as `@sidebar_bottom_height 0` does.
+pub const SIDEBAR_SHOW_GIT_TAB: &str = "@sidebar_show_git_tab";
 /// List tmux sessions that hold no agents as a bare, dimmed `[name]` header
 /// in the agent list. Off by default, and only honoured when
 /// `@sidebar_sorting` is `session` — repository grouping has no session

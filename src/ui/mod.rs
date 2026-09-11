@@ -139,6 +139,23 @@ pub fn show_empty_sessions_from_options(opts: &HashMap<String, String>) -> bool 
         .unwrap_or(false)
 }
 
+/// Read `@sidebar_show_activity_tab` from tmux global options, defaulting to
+/// `true` so the tab keeps showing for users who never set it.
+/// Accepts `on`/`off`, `true`/`false`, `1`/`0` (case-insensitive).
+pub fn show_activity_tab_from_options(opts: &HashMap<String, String>) -> bool {
+    opts.get(tmux::SIDEBAR_SHOW_ACTIVITY_TAB)
+        .map(|s| parse_tmux_truthy(s))
+        .unwrap_or(true)
+}
+
+/// Read `@sidebar_show_git_tab` from tmux global options, defaulting to
+/// `true`, like [`show_activity_tab_from_options`].
+pub fn show_git_tab_from_options(opts: &HashMap<String, String>) -> bool {
+    opts.get(tmux::SIDEBAR_SHOW_GIT_TAB)
+        .map(|s| parse_tmux_truthy(s))
+        .unwrap_or(true)
+}
+
 fn parse_tmux_truthy(raw: &str) -> bool {
     matches!(
         raw.trim().to_ascii_lowercase().as_str(),
@@ -157,6 +174,8 @@ pub fn apply_sidebar_ui_options(state: &mut AppState, opts: &HashMap<String, Str
     state.hide_repo_filter = hide_repo_filter_from_options(opts);
     state.sort_mode = sort_mode_from_options(opts);
     state.show_empty_sessions = show_empty_sessions_from_options(opts);
+    state.show_activity_tab = show_activity_tab_from_options(opts);
+    state.show_git_tab = show_git_tab_from_options(opts);
     if state.hide_filter_bar && state.focus_state.focus == crate::state::Focus::Filter {
         state.focus_state.focus = crate::state::Focus::Panes;
     }
@@ -168,7 +187,13 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
     state.layout.hyperlink_overlays.clear();
     let area = frame.area();
 
-    let bot_h = state.bottom_panel_height;
+    // Every tab switched off means there is nothing to put in the bottom
+    // panel, so it collapses exactly as `@sidebar_bottom_height 0` does.
+    let bot_h = if state.enabled_bottom_tabs().is_empty() {
+        0
+    } else {
+        state.bottom_panel_height
+    };
     let pet_band_h = if bot_h > 0 {
         if state.pet_enabled {
             PET_SCENE_HEIGHT
@@ -473,5 +498,41 @@ mod tests {
         let opts = opts_with(tmux::SIDEBAR_SORTING, "session");
         apply_sidebar_ui_options(&mut state, &opts);
         assert_eq!(state.sort_mode, crate::group::SortMode::Session);
+    }
+
+    // ─── bottom tab toggles ──────────────────────────────────────
+
+    #[test]
+    fn show_activity_tab_defaults_to_true_when_option_missing() {
+        assert!(show_activity_tab_from_options(&HashMap::new()));
+    }
+
+    #[test]
+    fn show_activity_tab_off_hides_the_tab() {
+        let opts = opts_with(tmux::SIDEBAR_SHOW_ACTIVITY_TAB, "off");
+        assert!(!show_activity_tab_from_options(&opts));
+    }
+
+    #[test]
+    fn show_git_tab_defaults_to_true_when_option_missing() {
+        assert!(show_git_tab_from_options(&HashMap::new()));
+    }
+
+    #[test]
+    fn show_git_tab_off_hides_the_tab() {
+        let opts = opts_with(tmux::SIDEBAR_SHOW_GIT_TAB, "off");
+        assert!(!show_git_tab_from_options(&opts));
+    }
+
+    #[test]
+    fn apply_sidebar_ui_options_reads_the_tab_toggles() {
+        let mut state = AppState::new("%0".into());
+        let opts = opts_with(tmux::SIDEBAR_SHOW_GIT_TAB, "off");
+        apply_sidebar_ui_options(&mut state, &opts);
+        assert!(!state.show_git_tab);
+        assert!(
+            state.show_activity_tab,
+            "untouched option keeps its default"
+        );
     }
 }
