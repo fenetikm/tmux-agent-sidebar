@@ -20,6 +20,7 @@ Most options must be set **before** loading the plugin in your `tmux.conf`. Colo
 | `@sidebar_show_activity_tab`     | `on`    | Show the bottom panel's Activity tab. Set `off` to hide it |
 | `@sidebar_show_git_tab`          | `on`    | Show the bottom panel's Git tab. Set `off` to hide it. Turning off every tab collapses the bottom panel entirely, like `@sidebar_bottom_height 0`. Both tab toggles are re-read on focus change, so they can be changed live |
 | `@sidebar_show_session_names`    | `on`    | Show Claude `/rename` session labels in pane rows. Set `off` to always show the agent label (`claude`, `codex`, `opencode`) |
+| `@sidebar_show_worktree_marker`  | `on`    | Prefix a worktree's branch with `+ ` in agent rows. Set `off` to drop the marker; a worktree name that differs from its branch is still shown, and `x` still removes sidebar-spawned worktrees |
 | `@sidebar_compact`               | `off`   | Render every agent entry in two lines: status, provider, mode, branch, elapsed on the first; one line of detail on the second. Toggle at runtime with `c` |
 | `@sidebar_sorting`               | `repository` | Group the agent list by `repository` (default) or `session`. `session` groups repos under a `[session name]` header, so a repo open in two sessions appears under each. Any other value falls back to `repository`. Set in `.tmux.conf`. |
 | `@sidebar_auto_create`           | `on`    | Auto-create the sidebar on new windows (set `off` to disable)                           |
@@ -39,6 +40,14 @@ set -g @sidebar_show_session_names off
 ```
 
 When changing this in an already-running tmux server, reload your `tmux.conf` and restart existing sidebar panes (`prefix + E` twice). The sidebar reads this option at startup.
+
+Set `@sidebar_show_worktree_marker` to `off` if the `+ ` that flags a worktree is more noise than signal:
+
+```tmux
+set -g @sidebar_show_worktree_marker off
+```
+
+This is purely cosmetic. The `x` key still removes sidebar-spawned worktrees, because that affordance follows the pane's worktree metadata rather than the marker.
 
 ## Custom panel
 

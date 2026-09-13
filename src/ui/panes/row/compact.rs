@@ -22,6 +22,7 @@ const BODY_PREFIX_WIDTH: usize = 2;
 /// branch row (`marker_ctx`, including selection background when selected).
 /// Line 2 carries a single contextual detail (`plain_ctx`, same marker but
 /// no selection background on the text) and is omitted when empty.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn render_pane_lines(
     pane: &crate::tmux::PaneInfo,
     git_info: &crate::group::PaneGitInfo,
@@ -30,6 +31,7 @@ pub(super) fn render_pane_lines(
     icons: &StatusIcons,
     spinner_frame: usize,
     now: u64,
+    show_worktree_marker: bool,
 ) -> Vec<Line<'static>> {
     let mut lines = vec![header_line(
         pane,
@@ -38,6 +40,7 @@ pub(super) fn render_pane_lines(
         icons,
         spinner_frame,
         now,
+        show_worktree_marker,
     )];
     if let Some(line) = body_line(pane, plain_ctx) {
         lines.push(line);
@@ -55,6 +58,7 @@ fn header_line(
     icons: &StatusIcons,
     spinner_frame: usize,
     now: u64,
+    show_worktree_marker: bool,
 ) -> Line<'static> {
     let theme = ctx.theme;
 
@@ -62,7 +66,7 @@ fn header_line(
     // See `status::status_row`: an idle prompt shows up as icon colour only.
     let icon_color = pulse_color
         .unwrap_or_else(|| theme.status_color(&pane.status, pane.needs_user_attention()));
-    let branch = branch_label(git_info);
+    let branch = branch_label(git_info, show_worktree_marker);
     let elapsed = elapsed_label(pane.started_at, now);
 
     // Build the left group as (text, colour) pairs first, then measure and
@@ -254,9 +258,28 @@ mod tests {
     /// Render lines to plain text, one per output line, with the trailing
     /// pad stripped so the snapshot shows content not whitespace.
     fn render(pane: &PaneInfo, git_info: &PaneGitInfo, width: usize) -> String {
+        render_with_marker(pane, git_info, width, true)
+    }
+
+    /// `render`, with `@sidebar_show_worktree_marker` under test.
+    fn render_with_marker(
+        pane: &PaneInfo,
+        git_info: &PaneGitInfo,
+        width: usize,
+        show_worktree_marker: bool,
+    ) -> String {
         let theme = ColorTheme::default();
         let c = ctx(&theme, width);
-        let lines = render_pane_lines(pane, git_info, &c, &c, &StatusIcons::default(), 0, NOW);
+        let lines = render_pane_lines(
+            pane,
+            git_info,
+            &c,
+            &c,
+            &StatusIcons::default(),
+            0,
+            NOW,
+            show_worktree_marker,
+        );
         let out = lines
             .iter()
             .map(|line| {
@@ -277,7 +300,16 @@ mod tests {
     /// is span 2.
     fn icon_color(pane: &PaneInfo, theme: &ColorTheme) -> Option<Color> {
         let c = ctx(theme, 44);
-        let lines = render_pane_lines(pane, &git("main"), &c, &c, &StatusIcons::default(), 0, NOW);
+        let lines = render_pane_lines(
+            pane,
+            &git("main"),
+            &c,
+            &c,
+            &StatusIcons::default(),
+            0,
+            NOW,
+            true,
+        );
         lines[0].spans[2].style.fg
     }
 
@@ -321,6 +353,25 @@ mod tests {
         p.permission_mode = PermissionMode::BypassPermissions;
         insta::assert_snapshot!(render(&p, &git("main"), 44), @"
         ○ ✳ ! main                             3m20s
+          Waiting for prompt…
+        ");
+    }
+
+    #[test]
+    fn header_hides_the_worktree_marker_when_the_option_is_off() {
+        let p = pane(PaneStatus::Idle);
+        let wt = PaneGitInfo {
+            repo_root: Some("/tmp/project".into()),
+            branch: Some("feat/auth".into()),
+            is_worktree: true,
+            worktree_name: Some("auth-wt".into()),
+        };
+        insta::assert_snapshot!(render_with_marker(&p, &wt, 44, true), @"
+        ○ ✳ + auth-wt: feat/auth               3m20s
+          Waiting for prompt…
+        ");
+        insta::assert_snapshot!(render_with_marker(&p, &wt, 44, false), @"
+        ○ ✳ auth-wt: feat/auth                 3m20s
           Waiting for prompt…
         ");
     }
@@ -494,6 +545,7 @@ mod tests {
                     &StatusIcons::default(),
                     0,
                     NOW,
+                    true,
                 );
                 assert!(
                     (1..=2).contains(&lines.len()),

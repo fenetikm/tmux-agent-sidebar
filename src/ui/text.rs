@@ -57,13 +57,18 @@ pub fn wait_reason_label(reason: &str) -> String {
     }
 }
 
-pub fn branch_label(git_info: &crate::group::PaneGitInfo) -> String {
+/// The branch text for an agent row. Worktrees are prefixed with `+ ` unless
+/// `show_marker` is false (`@sidebar_show_worktree_marker off`) — the marker
+/// is dropped, but a worktree name that differs from its branch is kept,
+/// because that name is information rather than decoration.
+pub fn branch_label(git_info: &crate::group::PaneGitInfo, show_marker: bool) -> String {
     match &git_info.branch {
         Some(branch) => {
             if git_info.is_worktree {
+                let prefix = if show_marker { "+ " } else { "" };
                 match &git_info.worktree_name {
-                    Some(name) if name != branch => format!("+ {}: {}", name, branch),
-                    _ => format!("+ {}", branch),
+                    Some(name) if name != branch => format!("{}{}: {}", prefix, name, branch),
+                    _ => format!("{}{}", prefix, branch),
                 }
             } else {
                 branch.clone()
@@ -419,7 +424,7 @@ mod tests {
             is_worktree: false,
             worktree_name: None,
         };
-        assert_eq!(branch_label(&info), "main");
+        assert_eq!(branch_label(&info, true), "main");
     }
 
     #[test]
@@ -431,14 +436,14 @@ mod tests {
             is_worktree: true,
             worktree_name: None,
         };
-        assert_eq!(branch_label(&info), "+ fix/typo");
+        assert_eq!(branch_label(&info, true), "+ fix/typo");
     }
 
     #[test]
     fn branch_label_no_git() {
         use crate::group::PaneGitInfo;
         let info = PaneGitInfo::default();
-        assert_eq!(branch_label(&info), "");
+        assert_eq!(branch_label(&info, true), "");
     }
 
     #[test]
@@ -449,7 +454,7 @@ mod tests {
             worktree_name: Some("auth-wt".into()),
             ..Default::default()
         };
-        assert_eq!(branch_label(&info), "+ auth-wt: feat/auth");
+        assert_eq!(branch_label(&info, true), "+ auth-wt: feat/auth");
     }
 
     #[test]
@@ -460,7 +465,7 @@ mod tests {
             worktree_name: Some("feat/auth".into()),
             ..Default::default()
         };
-        assert_eq!(branch_label(&info), "+ feat/auth");
+        assert_eq!(branch_label(&info, true), "+ feat/auth");
     }
 
     #[test]
@@ -471,6 +476,42 @@ mod tests {
             worktree_name: None,
             ..Default::default()
         };
-        assert_eq!(branch_label(&info), "+ main");
+        assert_eq!(branch_label(&info, true), "+ main");
+    }
+
+    #[test]
+    fn branch_label_drops_the_worktree_marker_when_hidden() {
+        let info = crate::group::PaneGitInfo {
+            branch: Some("main".into()),
+            is_worktree: true,
+            worktree_name: None,
+            ..Default::default()
+        };
+        assert_eq!(branch_label(&info, false), "main");
+    }
+
+    #[test]
+    fn branch_label_keeps_a_distinct_worktree_name_when_the_marker_is_hidden() {
+        // The `+ ` is decoration; a worktree name that differs from its branch
+        // is not, so hiding the marker must not take the name with it.
+        let info = crate::group::PaneGitInfo {
+            branch: Some("feat/auth".into()),
+            is_worktree: true,
+            worktree_name: Some("auth-wt".into()),
+            ..Default::default()
+        };
+        assert_eq!(branch_label(&info, false), "auth-wt: feat/auth");
+    }
+
+    #[test]
+    fn branch_label_ignores_the_marker_flag_for_plain_checkouts() {
+        let info = crate::group::PaneGitInfo {
+            branch: Some("main".into()),
+            is_worktree: false,
+            worktree_name: None,
+            ..Default::default()
+        };
+        assert_eq!(branch_label(&info, false), "main");
+        assert_eq!(branch_label(&info, true), "main");
     }
 }

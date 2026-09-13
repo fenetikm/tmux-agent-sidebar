@@ -91,6 +91,9 @@ pub const SIDEBAR_REPO_FILTER: &str = "@sidebar_repo_filter";
 pub const SIDEBAR_BOTTOM_HEIGHT: &str = "@sidebar_bottom_height";
 pub const SIDEBAR_PET: &str = "@sidebar_pet";
 pub const SIDEBAR_SHOW_SESSION_NAMES: &str = "@sidebar_show_session_names";
+/// Prefix a worktree's branch with `+ ` in the agent rows. On by default;
+/// turn it off to drop the marker while keeping the worktree's name.
+pub const SIDEBAR_SHOW_WORKTREE_MARKER: &str = "@sidebar_show_worktree_marker";
 /// Render every agent entry in exactly two lines. Off by default.
 pub const SIDEBAR_COMPACT: &str = "@sidebar_compact";
 /// Hide the status filter bar and show all agents regardless of

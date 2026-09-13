@@ -147,6 +147,11 @@ pub struct AppState {
     /// Whether Claude `/rename` session labels replace the agent label in pane
     /// status rows. Loaded once at startup from `@sidebar_show_session_names`.
     pub show_session_names: bool,
+    /// Whether a worktree's branch is prefixed with `+ ` in the agent rows.
+    /// Loaded once at startup from `@sidebar_show_worktree_marker`. Purely
+    /// cosmetic: the `x` worktree-remove affordance keys off the pane's
+    /// worktree metadata, not this marker.
+    pub show_worktree_marker: bool,
     /// Render every agent entry in exactly two lines instead of the
     /// variable-height detail rows. Loaded at startup from
     /// `@sidebar_compact` and toggled at runtime by `c`.
@@ -234,6 +239,7 @@ impl AppState {
             session_names: SessionNamesState::new(),
             pet_enabled: false,
             show_session_names: true,
+            show_worktree_marker: true,
             compact_rows: false,
             hide_filter_bar: false,
             hide_repo_filter: false,

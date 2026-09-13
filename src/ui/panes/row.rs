@@ -53,6 +53,7 @@ pub(super) fn render_pane_lines_with_ports(
         spinner_frame,
         now,
         true,
+        true,
         false,
     )
 }
@@ -72,6 +73,7 @@ pub(super) fn render_pane_lines_with_options(
     spinner_frame: usize,
     now: u64,
     show_session_names: bool,
+    show_worktree_marker: bool,
     compact: bool,
 ) -> Vec<Line<'static>> {
     let bg = if selected {
@@ -130,6 +132,7 @@ pub(super) fn render_pane_lines_with_options(
             icons,
             spinner_frame,
             now,
+            show_worktree_marker,
         );
     }
 
@@ -142,7 +145,13 @@ pub(super) fn render_pane_lines_with_options(
         now,
         show_session_names,
     ));
-    if let Some(line) = branch_ports_row(git_info, ports, pane.sidebar_spawned, &marker_ctx) {
+    if let Some(line) = branch_ports_row(
+        git_info,
+        ports,
+        pane.sidebar_spawned,
+        show_worktree_marker,
+        &marker_ctx,
+    ) {
         out.push(line);
     }
     let ctx = &plain_ctx;
@@ -329,6 +338,7 @@ mod tests {
             0,
             0,
             false,
+            true,
             false,
         );
 
@@ -1025,7 +1035,7 @@ mod tests {
         let theme = ColorTheme::default();
         let ctx = test_ctx(&theme, 40, false);
         let ports = vec![3000];
-        let line = branch_ports_row(&PaneGitInfo::default(), Some(&ports), false, &ctx)
+        let line = branch_ports_row(&PaneGitInfo::default(), Some(&ports), false, true, &ctx)
             .expect("should render port line");
         assert!(line_text(&line).contains(":3000"));
     }
@@ -1040,7 +1050,8 @@ mod tests {
             is_worktree: true,
             worktree_name: None,
         };
-        let line = branch_ports_row(&git, None, false, &ctx).expect("branch row should render");
+        let line =
+            branch_ports_row(&git, None, false, true, &ctx).expect("branch row should render");
         let text = line_text(&line);
         assert!(text.contains("+ feat/x"), "plain + marker: {text}");
         assert!(!text.contains('×'), "non-spawned must not render ×");
@@ -1057,7 +1068,8 @@ mod tests {
             is_worktree: true,
             worktree_name: None,
         };
-        let line = branch_ports_row(&git, None, true, &ctx).expect("branch row should render");
+        let line =
+            branch_ports_row(&git, None, true, true, &ctx).expect("branch row should render");
         let text = line_text(&line);
         assert!(
             text.contains("+ feat/x"),
@@ -1118,7 +1130,8 @@ mod tests {
             is_worktree: true,
             worktree_name: None,
         };
-        let line = branch_ports_row(&git, None, true, &ctx).expect("branch row should render");
+        let line =
+            branch_ports_row(&git, None, true, true, &ctx).expect("branch row should render");
         let text = line_text(&line);
         assert!(
             text.contains('×'),
@@ -1156,7 +1169,8 @@ mod tests {
             is_worktree: true,
             worktree_name: None,
         };
-        let line = branch_ports_row(&git, None, true, &ctx).expect("branch row should render");
+        let line =
+            branch_ports_row(&git, None, true, true, &ctx).expect("branch row should render");
         let text = line_text(&line);
         let computed = sidebar_remove_marker_col(&git, None, true, ctx.inner_width)
             .expect("col should be Some");
@@ -1188,6 +1202,32 @@ mod tests {
         let col_long = sidebar_remove_marker_col(&long, None, true, 40);
         assert_eq!(col_short, col_long);
         assert_eq!(col_short, Some(41));
+    }
+
+    #[test]
+    fn worktree_remove_affordance_survives_hiding_the_marker() {
+        // Regression guard: the `×` used to be gated on the rendered label
+        // starting with `+ `. With `@sidebar_show_worktree_marker off` that
+        // prefix is gone, so keying off the text would make `x` silently stop
+        // removing worktrees — the affordance must follow the pane's worktree
+        // metadata instead.
+        let theme = ColorTheme::default();
+        let ctx = test_ctx(&theme, 40, false);
+        let git = PaneGitInfo {
+            repo_root: Some("/r".into()),
+            branch: Some("feat/x".into()),
+            is_worktree: true,
+            worktree_name: None,
+        };
+
+        let hidden = branch_ports_row(&git, None, true, false, &ctx).expect("row should render");
+        let text = line_text(&hidden);
+        assert!(!text.contains("+ feat/x"), "marker must be hidden: {text}");
+        assert!(text.contains("feat/x"), "branch must survive: {text}");
+        assert!(text.contains('×'), "remove affordance must survive: {text}");
+
+        // The clickable column must agree with what was drawn.
+        assert_eq!(sidebar_remove_marker_col(&git, None, true, 40), Some(41));
     }
 
     #[test]
@@ -1229,8 +1269,8 @@ mod tests {
             worktree_name: None,
         };
         let ports = [3000u16];
-        let line =
-            branch_ports_row(&git, Some(&ports), true, &ctx).expect("branch row should render");
+        let line = branch_ports_row(&git, Some(&ports), true, true, &ctx)
+            .expect("branch row should render");
         let text = line_text(&line);
         assert_eq!(
             rendered_x_col(&text),
@@ -1259,7 +1299,8 @@ mod tests {
             is_worktree: false,
             worktree_name: None,
         };
-        let line = branch_ports_row(&git, None, true, &ctx).expect("branch row should render");
+        let line =
+            branch_ports_row(&git, None, true, true, &ctx).expect("branch row should render");
         let text = line_text(&line);
         assert!(text.contains("main"));
         assert!(!text.contains('×'));

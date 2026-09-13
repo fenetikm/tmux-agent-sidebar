@@ -29,10 +29,16 @@ fn port_display_text(ports: Option<&[u16]>) -> Option<String> {
 }
 
 /// Whether the trailing `×` remove marker should even be considered
-/// for this pane. Gated on sidebar-spawn + a visible worktree `+`
-/// prefix so plain branches never get a spurious action affordance.
+/// for this pane. Gated on sidebar-spawn plus a worktree that has a
+/// branch to remove, so plain branches never get a spurious action
+/// affordance.
+///
+/// This reads the pane's worktree metadata rather than testing the
+/// rendered label for a `+ ` prefix: `@sidebar_show_worktree_marker off`
+/// hides that prefix, and keying the affordance off the text would make
+/// `x` silently stop removing worktrees whenever the marker is hidden.
 fn should_emit_remove_marker(git_info: &crate::group::PaneGitInfo, sidebar_spawned: bool) -> bool {
-    sidebar_spawned && crate::ui::text::branch_label(git_info).starts_with("+ ")
+    sidebar_spawned && git_info.is_worktree && git_info.branch.is_some()
 }
 
 /// Compute the column offset (within the full pane row) where the
@@ -59,9 +65,10 @@ pub(super) fn branch_ports_row(
     git_info: &crate::group::PaneGitInfo,
     ports: Option<&[u16]>,
     sidebar_spawned: bool,
+    show_worktree_marker: bool,
     ctx: &RowCtx,
 ) -> Option<Line<'static>> {
-    let branch = crate::ui::text::branch_label(git_info);
+    let branch = crate::ui::text::branch_label(git_info, show_worktree_marker);
     let port_text = port_display_text(ports);
 
     if branch.is_empty() && port_text.is_none() {
@@ -76,7 +83,7 @@ pub(super) fn branch_ports_row(
     // edge, mirroring the repo header's right-aligned `+` spawn
     // button. When ports are also present they stack to the left of
     // the `×`, separated by a single space.
-    let emit_remove_marker = sidebar_spawned && branch.starts_with("+ ");
+    let emit_remove_marker = should_emit_remove_marker(git_info, sidebar_spawned);
 
     let mut right_spans: Vec<Span<'static>> = Vec::new();
     let mut right_width: usize = 0;

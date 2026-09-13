@@ -66,6 +66,16 @@ pub fn show_session_names_from_tmux() -> bool {
     show_session_names_from_options(&opts)
 }
 
+/// Read `@sidebar_show_worktree_marker` from tmux global options, defaulting
+/// to `true` so the `+ ` worktree prefix keeps showing unless asked otherwise.
+/// Accepts `on`/`off`, `true`/`false`, `1`/`0` (case-insensitive).
+pub fn show_worktree_marker_from_options(opts: &HashMap<String, String>) -> bool {
+    opts.get(tmux::SIDEBAR_SHOW_WORKTREE_MARKER)
+        .map(|s| s.trim().to_ascii_lowercase())
+        .map(|s| matches!(s.as_str(), "on" | "true" | "1" | "yes"))
+        .unwrap_or(true)
+}
+
 /// Read `@sidebar_compact` from tmux global options, defaulting to `false`
 /// so existing users keep the variable-height rows.
 /// Accepts `on`/`off`, `true`/`false`, `1`/`0` (case-insensitive).
@@ -178,6 +188,7 @@ pub fn apply_sidebar_ui_options(state: &mut AppState, opts: &HashMap<String, Str
     state.bottom_panel_height = bottom_panel_height_from_options(opts);
     state.pet_enabled = pet_enabled_from_options(opts);
     state.show_session_names = show_session_names_from_options(opts);
+    state.show_worktree_marker = show_worktree_marker_from_options(opts);
     state.compact_rows = compact_rows_from_options(opts);
     state.hide_filter_bar = hide_filter_bar_from_options(opts);
     state.hide_repo_filter = hide_repo_filter_from_options(opts);
@@ -335,6 +346,34 @@ mod tests {
             assert!(
                 !show_empty_sessions_from_options(&opts),
                 "expected {value} to hide empty sessions"
+            );
+        }
+    }
+
+    #[test]
+    fn worktree_marker_default_on_when_option_missing() {
+        let opts = HashMap::new();
+        assert!(show_worktree_marker_from_options(&opts));
+    }
+
+    #[test]
+    fn worktree_marker_disabled_when_off() {
+        for value in ["off", "OFF", "false", "0", "no", ""] {
+            let opts = opts_with(tmux::SIDEBAR_SHOW_WORKTREE_MARKER, value);
+            assert!(
+                !show_worktree_marker_from_options(&opts),
+                "expected {value} to hide the worktree marker"
+            );
+        }
+    }
+
+    #[test]
+    fn worktree_marker_enabled_when_on() {
+        for value in ["on", "ON", "true", "1", "yes"] {
+            let opts = opts_with(tmux::SIDEBAR_SHOW_WORKTREE_MARKER, value);
+            assert!(
+                show_worktree_marker_from_options(&opts),
+                "expected {value} to show the worktree marker"
             );
         }
     }

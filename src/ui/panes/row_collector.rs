@@ -296,6 +296,7 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
                 state.spinner_frame,
                 state.now,
                 state.show_session_names,
+                state.show_worktree_marker,
                 state.compact_rows,
             );
             let pane_line_count = pane_lines.len();
