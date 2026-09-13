@@ -53,6 +53,10 @@ pub struct PanelRow {
     pub icon_color: PanelColor,
     pub url: Option<String>,
     pub heading: bool,
+    /// Render this row as a centred status message rather than a list row.
+    /// A payload made entirely of centred rows is also centred vertically,
+    /// so a one-row payload reads like the built-in `Loading…` state.
+    pub centered: bool,
 }
 
 /// Truncate an icon to [`ICON_MAX_WIDTH`] display cells, never splitting a
@@ -109,9 +113,17 @@ pub fn parse_rows(stdout: &str) -> (Vec<PanelRow>, Option<String>) {
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
 
+        let centered = obj
+            .get("centered")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+
         // Headings are structural labels, not targets: an icon column would
-        // break the alignment they exist to organise.
-        let (icon, url) = if heading {
+        // break the alignment they exist to organise. A centred row is not a
+        // target either — the hyperlink overlay's column is computed from a
+        // left-aligned layout, so a centred link would underline the wrong
+        // cells.
+        let (icon, url) = if heading || centered {
             (None, None)
         } else {
             (
@@ -137,6 +149,7 @@ pub fn parse_rows(stdout: &str) -> (Vec<PanelRow>, Option<String>) {
             icon_color,
             url,
             heading,
+            centered,
         });
     }
 
@@ -624,6 +637,7 @@ mod tests {
                     icon_color: PanelColor::Default,
                     url: None,
                     heading: false,
+                    centered: false,
                 })
                 .collect(),
             error: error.map(str::to_string),
@@ -736,5 +750,26 @@ mod tests {
         });
         assert!(out.rows.is_empty(), "an empty success is a real result");
         assert!(out.error.is_none());
+    }
+
+    #[test]
+    fn centered_defaults_to_false() {
+        let (rows, _) = parse_rows(r#"{"text":"hi"}"#);
+        assert!(!rows[0].centered);
+    }
+
+    #[test]
+    fn centered_row_is_parsed() {
+        let (rows, err) = parse_rows(r#"{"text":"Not a git repository","centered":true}"#);
+        assert!(err.is_none());
+        assert!(rows[0].centered);
+    }
+
+    #[test]
+    fn centered_row_drops_its_icon_and_url() {
+        let (rows, _) =
+            parse_rows(r#"{"text":"nope","centered":true,"icon":"x","url":"https://example.com"}"#);
+        assert_eq!(rows[0].icon, None, "a centred row is not a click target");
+        assert_eq!(rows[0].url, None);
     }
 }

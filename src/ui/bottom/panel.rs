@@ -1,6 +1,6 @@
 use ratatui::{
     Frame,
-    layout::Rect,
+    layout::{Alignment, Rect},
     style::{Color, Style},
     text::{Line, Span},
     widgets::Paragraph,
@@ -35,6 +35,18 @@ fn row_line(
         let text = truncate_to_width(&row.text, width);
         return (
             Line::from(Span::styled(text, Style::default().fg(theme.section_title))),
+            None,
+        );
+    }
+
+    if row.centered {
+        let text = truncate_to_width(&row.text, width);
+        return (
+            Line::from(Span::styled(
+                text,
+                Style::default().fg(color_for(row.text_color, theme)),
+            ))
+            .alignment(Alignment::Center),
             None,
         );
     }
@@ -115,6 +127,16 @@ pub(super) fn draw_panel_content(frame: &mut Frame, state: &mut AppState, inner:
             });
         }
         lines.push(line);
+    }
+
+    // A payload that is nothing but centred rows is a status message, not a
+    // list, so centre it vertically as well — that is what makes it read like
+    // the built-in `Loading…` and `No rows` states.
+    if !data.rows.is_empty() && data.rows.iter().all(|row| row.centered) {
+        let top_pad = (rows_height as usize).saturating_sub(lines.len()) / 2;
+        let mut padded = vec![Line::from(""); top_pad];
+        padded.append(&mut lines);
+        lines = padded;
     }
 
     if rows_height > 0 {

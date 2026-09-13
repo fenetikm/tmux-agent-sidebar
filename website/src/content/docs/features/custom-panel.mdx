@@ -56,10 +56,23 @@ Output NDJSON on stdout — one JSON object per line:
 | `icon_color`  | no       | Defaults to `text_color`.                                            |
 | `url`         | no       | Turns the row into a clickable hyperlink.                            |
 | `heading`     | no       | Renders the row as a section label; `icon` and `url` are ignored when set. |
+| `centered`    | no       | Renders the row as a centred status message; `icon` and `url` are ignored when set. |
 
 Unknown fields are ignored, so scripts keep working as the schema grows.
 
 Each line is parsed independently — one malformed line is skipped without affecting the rest. An error is reported only when every line in the output fails to parse.
+
+## Centred messages
+
+A row with `centered` is centred horizontally, and when *every* row in the output is centred the block is centred vertically too — so a single-row payload reads exactly like the built-in `Loading…` and `No rows` states:
+
+```json
+{"text": "Not a git repository", "text_color": "muted", "centered": true}
+```
+
+That is the idiomatic way to say "nothing to show here, and here's why". Exiting non-zero would instead paint an error over the last good rows, which is wrong when the state is ordinary rather than a failure — a script that reports on the focused repository will meet plenty of directories that aren't one.
+
+Like `heading`, a centred row ignores `icon` and `url`: the hyperlink region is computed from a left-aligned layout, so a centred link would underline the wrong cells.
 
 ## Colors
 

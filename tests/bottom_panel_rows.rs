@@ -13,6 +13,15 @@ fn row(text: &str) -> PanelRow {
         icon_color: PanelColor::Default,
         url: None,
         heading: false,
+        centered: false,
+    }
+}
+
+fn centered_row(text: &str) -> PanelRow {
+    PanelRow {
+        centered: true,
+        text_color: PanelColor::Muted,
+        ..row(text)
     }
 }
 
@@ -61,6 +70,7 @@ fn renders_icons_headings_and_colors() {
         icon_color: PanelColor::Muted,
         url: None,
         heading: true,
+        centered: false,
     }];
     rows.push(PanelRow {
         text: "#412 approved".into(),
@@ -69,6 +79,7 @@ fn renders_icons_headings_and_colors() {
         icon_color: PanelColor::Success,
         url: Some("https://example.com/pr/412".into()),
         heading: false,
+        centered: false,
     });
     rows.push(PanelRow {
         text: "#77 stale".into(),
@@ -77,6 +88,7 @@ fn renders_icons_headings_and_colors() {
         icon_color: PanelColor::Danger,
         url: None,
         heading: false,
+        centered: false,
     });
     let mut state = state_with(rows, None);
     insta::assert_snapshot!(render(&mut state), @"
@@ -247,6 +259,7 @@ fn colors_map_rows_and_headings_onto_the_expected_theme_fields() {
             icon_color: PanelColor::Default,
             url: None,
             heading: true,
+            centered: false,
         },
         PanelRow {
             text: "default".into(),
@@ -255,6 +268,7 @@ fn colors_map_rows_and_headings_onto_the_expected_theme_fields() {
             icon_color: PanelColor::Default,
             url: None,
             heading: false,
+            centered: false,
         },
         PanelRow {
             text: "muted".into(),
@@ -263,6 +277,7 @@ fn colors_map_rows_and_headings_onto_the_expected_theme_fields() {
             icon_color: PanelColor::Muted,
             url: None,
             heading: false,
+            centered: false,
         },
         PanelRow {
             text: "accent".into(),
@@ -271,6 +286,7 @@ fn colors_map_rows_and_headings_onto_the_expected_theme_fields() {
             icon_color: PanelColor::Accent,
             url: None,
             heading: false,
+            centered: false,
         },
         PanelRow {
             text: "success".into(),
@@ -279,6 +295,7 @@ fn colors_map_rows_and_headings_onto_the_expected_theme_fields() {
             icon_color: PanelColor::Success,
             url: None,
             heading: false,
+            centered: false,
         },
         PanelRow {
             text: "warning".into(),
@@ -287,6 +304,7 @@ fn colors_map_rows_and_headings_onto_the_expected_theme_fields() {
             icon_color: PanelColor::Warning,
             url: None,
             heading: false,
+            centered: false,
         },
         PanelRow {
             text: "danger".into(),
@@ -295,6 +313,7 @@ fn colors_map_rows_and_headings_onto_the_expected_theme_fields() {
             icon_color: PanelColor::Danger,
             url: None,
             heading: false,
+            centered: false,
         },
     ];
     // Use a short bottom panel (9 rows -> inner height 7, one per row here)
@@ -318,5 +337,100 @@ fn colors_map_rows_and_headings_onto_the_expected_theme_fields() {
     │[fg:240]*[fg:221] [fg:240]w[fg:221]a[fg:221]r[fg:221]n[fg:221]i[fg:221]n[fg:221]g[fg:221] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240]│[fg:240]
     │[fg:240]*[fg:167] [fg:240]d[fg:167]a[fg:167]n[fg:167]g[fg:167]e[fg:167]r[fg:167] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240]│[fg:240]
     ╰[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]╯[fg:240]
+    ");
+}
+
+#[test]
+fn a_lone_centered_row_looks_like_the_built_in_empty_state() {
+    let mut state = state_with(vec![centered_row("Not a git repository")], None);
+    insta::assert_snapshot!(render_to_string(&mut state, 28, 24), @"
+     ≡0  ●0  ◎0  ◐0  ○0  ✕0
+                             — ▾
+    ╭ Activity │ Git │ PRs ────╮
+    │   Not a git repository   │
+    ╰──────────────────────────╯
+    ");
+}
+
+/// Render keeping blank lines, which `render_to_string` strips. Vertical
+/// placement is exactly what the centred-row rule is about, so it has to be
+/// visible in the snapshot.
+fn render_verbatim(state: &mut AppState, width: u16, height: u16) -> String {
+    use ratatui::{Terminal, backend::TestBackend};
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal
+        .draw(|frame| tmux_agent_sidebar::ui::draw(frame, state))
+        .unwrap();
+    let buf = terminal.backend().buffer().clone();
+    (buf.area.y..buf.area.y + buf.area.height)
+        .map(|y| {
+            (buf.area.x..buf.area.x + buf.area.width)
+                .map(|x| buf[(x, y)].symbol())
+                .collect::<String>()
+                .trim_end()
+                .to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn a_lone_centered_row_is_centred_vertically_in_a_tall_panel() {
+    let mut state = state_with(vec![centered_row("Not a git repository")], None);
+    state.bottom_panel_height = 7;
+    insta::assert_snapshot!(render_verbatim(&mut state, 28, 12), @"
+     ≡0  ●0  ◎0  ◐0  ○0  ✕0
+                             — ▾
+
+
+
+    ╭ Activity │ Git │ PRs ────╮
+    │                          │
+    │                          │
+    │   Not a git repository   │
+    │                          │
+    │                          │
+    ╰──────────────────────────╯
+    ");
+}
+
+#[test]
+fn normal_rows_stay_at_the_top_of_a_tall_panel() {
+    let mut state = state_with(vec![row("#412 fix it")], None);
+    state.bottom_panel_height = 7;
+    insta::assert_snapshot!(render_verbatim(&mut state, 28, 12), @"
+     ≡0  ●0  ◎0  ◐0  ○0  ✕0
+                             — ▾
+
+
+
+    ╭ Activity │ Git │ PRs ────╮
+    │#412 fix it               │
+    │                          │
+    │                          │
+    │                          │
+    │                          │
+    ╰──────────────────────────╯
+    ");
+}
+
+#[test]
+fn centered_rows_among_normal_rows_stay_in_place() {
+    let mut state = state_with(
+        vec![
+            row("#412 fix it"),
+            centered_row("nothing else"),
+            row("#410"),
+        ],
+        None,
+    );
+    insta::assert_snapshot!(render_to_string(&mut state, 28, 24), @"
+     ≡0  ●0  ◎0  ◐0  ○0  ✕0
+                             — ▾
+    ╭ Activity │ Git │ PRs ────╮
+    │#412 fix it               │
+    │       nothing else       │
+    │#410                      │
+    ╰──────────────────────────╯
     ");
 }
