@@ -453,7 +453,7 @@ fn snapshot_compact_rows_are_two_lines_each() {
      ≡3  ●1  ◎0  ◐1  ○1  ✕0
     ⓘ                                        — ▾
     project
-    ┃ ● ✳ auto                             3m20s
+    ┃ ● ✳                                  3m20s
     ┃   Add a compact display mode for agent en…
     ╭ Activity │ Git ──────────────────────────╮
     │              No activity yet             │
@@ -469,7 +469,7 @@ fn snapshot_compact_rows_at_narrow_width() {
      ≡3  ●1  ◎0  ◐1  ○1  ✕0
     ⓘ                      — ▾
     project
-    ┃ ● ✳ auto           3m20s
+    ┃ ● ✳                3m20s
     ┃   Add a compact display…
     ╭ Activity │ Git ────────╮
     │     No activity yet    │

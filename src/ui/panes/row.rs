@@ -150,7 +150,11 @@ pub(super) fn render_pane_lines_with_options(
         out.push(line);
     }
     out.extend(subagent_rows(&pane.subagents, ctx));
-    if let Some(line) = wait_reason_row(&pane.wait_reason, &pane.status, ctx) {
+    // An idle prompt is reported by the status icon's colour, so it spends no
+    // row here; every other reason carries detail a colour cannot.
+    if !pane.is_idle_prompt()
+        && let Some(line) = wait_reason_row(&pane.wait_reason, &pane.status, ctx)
+    {
         out.push(line);
     }
     if let Some(cmd) = pane.bg_shell_cmd.as_deref() {
@@ -528,15 +532,80 @@ mod tests {
         assert!(hint.contains("Waiting for prompt"));
     }
 
+    /// Foreground colour of the status row's glyph. `row_line_split` puts the
+    /// marker and its trailing space ahead of the left group, so it is span 2.
+    fn rendered_icon_color(pane: &PaneInfo, theme: &ColorTheme) -> Option<Color> {
+        let lines = render_pane_lines_with_ports(
+            pane,
+            &PaneGitInfo::default(),
+            None,
+            None,
+            false,
+            false,
+            false,
+            40,
+            &StatusIcons::default(),
+            theme,
+            0,
+            0,
+        );
+        lines[0].spans[2].style.fg
+    }
+
     #[test]
-    fn render_pane_lines_shows_wait_reason_while_idle() {
-        // Regression guard: `idle_prompt` deliberately leaves the pane at
-        // `Idle` and only records a wait reason, so the wait-reason row must
-        // not be gated on `Waiting`. If it ever is, the sidebar silently
-        // stops reporting that an agent is sitting there waiting on the user.
+    fn render_pane_lines_reports_an_idle_prompt_through_the_icon_colour() {
+        // `idle_prompt` deliberately leaves the pane at `Idle` without raising
+        // `@pane_attention`. The sidebar must still say the agent is blocked on
+        // the user — it does so by painting the glyph with the waiting colour
+        // instead of spending a row on the text.
         let theme = ColorTheme::default();
-        let mut pane = pane(PermissionMode::Default, PaneStatus::Idle, "");
+        let mut pane = pane(
+            PermissionMode::Default,
+            PaneStatus::Idle,
+            "the last response",
+        );
         pane.wait_reason = "idle_prompt".into();
+
+        assert_eq!(
+            rendered_icon_color(&pane, &theme),
+            Some(theme.status_waiting)
+        );
+
+        let lines = render_pane_lines_with_ports(
+            &pane,
+            &PaneGitInfo::default(),
+            None,
+            None,
+            false,
+            false,
+            false,
+            40,
+            &StatusIcons::default(),
+            &theme,
+            0,
+            0,
+        );
+        assert!(
+            !lines
+                .iter()
+                .any(|l| line_text(l).contains("waiting for input")),
+            "the icon colour replaces the wait-reason row, it does not join it"
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|l| line_text(l).contains("the last response")),
+            "the freed row must fall through to the prompt"
+        );
+    }
+
+    #[test]
+    fn render_pane_lines_keeps_other_wait_reasons_on_their_own_row() {
+        // Only `idle_prompt` moves to the icon; reasons that carry detail a
+        // colour cannot express keep their row.
+        let theme = ColorTheme::default();
+        let mut pane = pane(PermissionMode::Default, PaneStatus::Waiting, "");
+        pane.wait_reason = "permission_prompt".into();
         let lines = render_pane_lines_with_ports(
             &pane,
             &PaneGitInfo::default(),
@@ -555,8 +624,23 @@ mod tests {
         assert!(
             lines
                 .iter()
-                .any(|l| line_text(l).contains("waiting for input")),
-            "idle pane with an idle_prompt wait reason should say so"
+                .any(|l| line_text(l).contains("permission required")),
+            "a permission prompt should still name itself"
+        );
+    }
+
+    #[test]
+    fn render_pane_lines_ignores_a_stale_idle_prompt_on_a_running_pane() {
+        // `@pane_wait_reason` survives into the pane's next task, so the reason
+        // alone must not outvote the pane's live status.
+        let theme = ColorTheme::default();
+        let mut pane = pane(PermissionMode::Default, PaneStatus::Running, "working");
+        pane.wait_reason = "idle_prompt".into();
+        // `Running` pulses through the spinner palette, so assert on the
+        // absence of the waiting colour rather than an exact frame colour.
+        assert_ne!(
+            rendered_icon_color(&pane, &theme),
+            Some(theme.status_waiting)
         );
     }
 

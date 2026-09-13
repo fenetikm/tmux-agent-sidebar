@@ -83,7 +83,7 @@ bind-key C-w run-shell '"#{@agent_sidebar_bin}" focus next --waiting'
 bind-key C-W run-shell '"#{@agent_sidebar_bin}" focus prev --waiting --scope session'
 ```
 
-"Waiting" is the same condition `list --json` reports as `attention` and the sidebar renders as *waiting for input*: the `@pane_attention` flag is raised, or the status is `waiting`, or the pane is idle with a `@pane_wait_reason` of `idle_prompt`. That last case matters — an idle prompt records its wait reason without raising the attention flag, so a plain status check would skip it.
+"Waiting" is the same condition `list --json` reports as `attention` and the sidebar marks by painting the pane's status icon in the waiting colour: the `@pane_attention` flag is raised, or the status is `waiting`, or the pane is idle with a `@pane_wait_reason` of `idle_prompt`. That last case matters — an idle prompt records its wait reason without raising the attention flag, so a plain status check would skip it.
 
 `--waiting` combines with `--scope`, and everything else about cycling is unchanged: repo-group order, wrap-around, and entering the list from the appropriate end when you press the key from a non-agent pane. It is only valid with `next` and `prev` — `notification` jumps by recency and `<N>` / `%pane_id` name their pane outright, so the flag is rejected there.
 

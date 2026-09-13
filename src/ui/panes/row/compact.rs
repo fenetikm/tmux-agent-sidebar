@@ -5,7 +5,7 @@ use ratatui::{
 
 use super::ctx::RowCtx;
 use super::status::{badge_color, running_icon_for};
-use crate::tmux::PaneStatus;
+use crate::tmux::{PaneStatus, PermissionMode};
 use crate::ui::icons::StatusIcons;
 use crate::ui::text::{
     branch_label, display_width, elapsed_label, truncate_to_width, wait_reason_label, wrap_text,
@@ -45,9 +45,9 @@ pub(super) fn render_pane_lines(
     lines
 }
 
-/// `status icon · provider glyph · badge · branch` on the left, elapsed on
-/// the right. Each left part is dropped along with its separating space
-/// when empty, so a pane with no branch and no badge does not leave holes.
+/// `status icon · provider glyph · bypass marker · branch` on the left,
+/// elapsed on the right. Each left part is dropped along with its separating
+/// space when empty, so a pane with no branch does not leave a hole.
 fn header_line(
     pane: &crate::tmux::PaneInfo,
     git_info: &crate::group::PaneGitInfo,
@@ -59,9 +59,9 @@ fn header_line(
     let theme = ctx.theme;
 
     let (icon, pulse_color) = running_icon_for(&pane.status, spinner_frame, icons);
-    let icon_color =
-        pulse_color.unwrap_or_else(|| theme.status_color(&pane.status, pane.attention));
-    let badge = pane.permission_mode.badge();
+    // See `status::status_row`: an idle prompt shows up as icon colour only.
+    let icon_color = pulse_color
+        .unwrap_or_else(|| theme.status_color(&pane.status, pane.needs_user_attention()));
     let branch = branch_label(git_info);
     let elapsed = elapsed_label(pane.started_at, now);
 
@@ -74,16 +74,21 @@ fn header_line(
         format!(" {}", icons.agent_icon(&pane.agent)),
         theme.agent_color(&pane.agent),
     ));
-    if !badge.is_empty() {
+    // Compact mode drops the permission-mode badge: `auto`, `plan`, `edit`,
+    // `dontAsk`, and `defer` state a preference the row does not need to
+    // repeat, and four of the five share one colour anyway. `bypassPermissions`
+    // is the exception — it reports that permission checks are off entirely,
+    // which is worth its single column across a list of agents.
+    if matches!(pane.permission_mode, PermissionMode::BypassPermissions) {
         left.push((
-            format!(" {}", badge),
+            format!(" {}", pane.permission_mode.badge()),
             badge_color(&pane.permission_mode, theme),
         ));
     }
     let mut left_width: usize = left.iter().map(|(t, _)| display_width(t)).sum();
 
-    // The branch takes whatever is left once the icons, badge, and the
-    // right-aligned elapsed label have their columns. There is no fixed
+    // The branch takes whatever is left once the icons, bypass marker, and
+    // the right-aligned elapsed label have their columns. There is no fixed
     // cap: it ellipsizes only when it genuinely does not fit.
     let elapsed_width = display_width(&elapsed);
     let elapsed_gap = usize::from(elapsed_width > 0);
@@ -126,13 +131,16 @@ fn header_line(
 fn body_content(pane: &crate::tmux::PaneInfo, ctx: &RowCtx) -> (String, Color, bool) {
     let theme = ctx.theme;
 
-    // `Idle` is included because informational notifications (`idle_prompt`,
-    // `session_resumed`) record a reason without moving the pane out of idle;
+    // `Idle` is included because informational notifications (`session_resumed`,
+    // `auth_success`) record a reason without moving the pane out of idle;
     // expanded mode renders those above the prompt, so compact must too.
+    // `idle_prompt` is the exception: it is reported by the icon colour alone,
+    // leaving this line for the response the user is being asked about.
     if matches!(
         pane.status,
         PaneStatus::Waiting | PaneStatus::Error | PaneStatus::Idle
     ) && !pane.wait_reason.is_empty()
+        && !pane.is_idle_prompt()
     {
         let color = if matches!(pane.status, PaneStatus::Error) {
             theme.status_error
@@ -264,35 +272,76 @@ mod tests {
         out
     }
 
-    #[test]
-    fn header_shows_status_provider_badge_branch_and_elapsed() {
-        let mut p = pane(PaneStatus::Running);
-        p.prompt = "Refactor the notification backend".into();
-        insta::assert_snapshot!(render(&p, &git("feat/session-blocklist"), 44), @"● ✳ auto feat/session-blocklist        3m20s
-  Refactor the notification backend");
+    /// Foreground colour of the header's status glyph. `row_line_split` puts
+    /// the marker and its trailing space ahead of the left group, so the icon
+    /// is span 2.
+    fn icon_color(pane: &PaneInfo, theme: &ColorTheme) -> Option<Color> {
+        let c = ctx(theme, 44);
+        let lines = render_pane_lines(pane, &git("main"), &c, &c, &StatusIcons::default(), 0, NOW);
+        lines[0].spans[2].style.fg
     }
 
     #[test]
-    fn header_omits_badge_when_permission_mode_is_default() {
+    fn header_shows_status_provider_branch_and_elapsed() {
+        let mut p = pane(PaneStatus::Running);
+        p.prompt = "Refactor the notification backend".into();
+        insta::assert_snapshot!(render(&p, &git("feat/session-blocklist"), 44), @"
+        ● ✳ feat/session-blocklist             3m20s
+          Refactor the notification backend
+        ");
+    }
+
+    #[test]
+    fn header_omits_the_permission_mode_badge() {
+        // `auto` and friends state a preference, not something the agent is
+        // doing; compact mode spends those columns on the branch instead.
+        for mode in [
+            PermissionMode::Default,
+            PermissionMode::Auto,
+            PermissionMode::Plan,
+            PermissionMode::AcceptEdits,
+            PermissionMode::DontAsk,
+            PermissionMode::Defer,
+        ] {
+            let mut p = pane(PaneStatus::Idle);
+            p.permission_mode = mode.clone();
+            let out = render(&p, &git("main"), 44);
+            assert!(
+                !out.contains(mode.badge()) || mode.badge().is_empty(),
+                "compact mode should not render the {mode:?} badge, got: {out}"
+            );
+        }
+    }
+
+    #[test]
+    fn header_keeps_the_bypass_marker() {
+        // `bypassPermissions` is not a preference — it reports that permission
+        // checks are off entirely, which stays worth its single column.
         let mut p = pane(PaneStatus::Idle);
-        p.permission_mode = PermissionMode::Default;
-        insta::assert_snapshot!(render(&p, &git("main"), 44), @"○ ✳ main                               3m20s
-  Waiting for prompt…");
+        p.permission_mode = PermissionMode::BypassPermissions;
+        insta::assert_snapshot!(render(&p, &git("main"), 44), @"
+        ○ ✳ ! main                             3m20s
+          Waiting for prompt…
+        ");
     }
 
     #[test]
     fn header_omits_branch_when_git_info_is_empty() {
         let p = pane(PaneStatus::Idle);
-        insta::assert_snapshot!(render(&p, &PaneGitInfo::default(), 44), @"○ ✳ auto                               3m20s
-  Waiting for prompt…");
+        insta::assert_snapshot!(render(&p, &PaneGitInfo::default(), 44), @"
+        ○ ✳                                    3m20s
+          Waiting for prompt…
+        ");
     }
 
     #[test]
     fn header_ellipsizes_branch_at_narrow_width() {
         let mut p = pane(PaneStatus::Running);
         p.prompt = "Investigate the failing snapshot test".into();
-        insta::assert_snapshot!(render(&p, &git("feat/a-very-long-branch-name"), 26), @"● ✳ auto feat/a-ver… 3m20s
-  Investigate the failing…");
+        insta::assert_snapshot!(render(&p, &git("feat/a-very-long-branch-name"), 26), @"
+        ● ✳ feat/a-very-lon… 3m20s
+          Investigate the failing…
+        ");
     }
 
     #[test]
@@ -300,29 +349,73 @@ mod tests {
         let mut p = pane(PaneStatus::Waiting);
         p.wait_reason = "permission_prompt".into();
         p.prompt = "this prompt must not win".into();
-        insta::assert_snapshot!(render(&p, &git("main"), 44), @"◐ ✳ auto main                          3m20s
-  permission required");
+        insta::assert_snapshot!(render(&p, &git("main"), 44), @"
+        ◐ ✳ main                               3m20s
+          permission required
+        ");
     }
 
     #[test]
     fn body_prefers_wait_reason_when_errored() {
         let mut p = pane(PaneStatus::Error);
         p.wait_reason = "rate_limit".into();
-        insta::assert_snapshot!(render(&p, &git("main"), 44), @"✕ ✳ auto main                          3m20s
-  rate limit");
+        insta::assert_snapshot!(render(&p, &git("main"), 44), @"
+        ✕ ✳ main                               3m20s
+          rate limit
+        ");
     }
 
     #[test]
-    fn body_prefers_wait_reason_when_idle() {
-        // `idle_prompt` leaves the pane idle and only records a wait reason,
-        // so compact mode must surface it rather than falling through to the
-        // last response — expanded mode renders the wait reason above the
-        // prompt, and this path is meant to mirror that precedence.
+    fn body_keeps_the_prompt_at_an_idle_prompt() {
+        // `idle_prompt` is carried by the icon colour alone, so the body line
+        // stays with the response the user is being asked to act on.
         let mut p = pane(PaneStatus::Idle);
         p.wait_reason = "idle_prompt".into();
+        p.prompt = "this prompt must win".into();
+        insta::assert_snapshot!(render(&p, &git("main"), 44), @"
+        ○ ✳ main                               3m20s
+          this prompt must win
+        ");
+    }
+
+    #[test]
+    fn idle_prompt_paints_the_status_icon_with_the_waiting_colour() {
+        let theme = ColorTheme::default();
+        let mut p = pane(PaneStatus::Idle);
+        p.wait_reason = "idle_prompt".into();
+        assert_eq!(icon_color(&p, &theme), Some(theme.status_waiting));
+    }
+
+    #[test]
+    fn plain_idle_keeps_the_idle_icon_colour() {
+        let theme = ColorTheme::default();
+        let p = pane(PaneStatus::Idle);
+        assert_eq!(icon_color(&p, &theme), Some(theme.status_idle));
+    }
+
+    #[test]
+    fn stale_idle_prompt_on_a_running_pane_does_not_paint_the_icon() {
+        // `@pane_wait_reason` is not cleared when a pane resumes work, so the
+        // reason alone must not outvote the pane's live status.
+        let theme = ColorTheme::default();
+        let mut p = pane(PaneStatus::Running);
+        p.wait_reason = "idle_prompt".into();
+        // `Running` pulses through the spinner palette, so assert on the
+        // absence of the waiting colour rather than an exact frame colour.
+        assert_ne!(icon_color(&p, &theme), Some(theme.status_waiting));
+    }
+
+    #[test]
+    fn body_surfaces_other_idle_wait_reasons() {
+        // Only `idle_prompt` moves to the icon; informational reasons that
+        // leave the pane idle still spend the body line.
+        let mut p = pane(PaneStatus::Idle);
+        p.wait_reason = "session_resumed".into();
         p.prompt = "this prompt must not win".into();
-        insta::assert_snapshot!(render(&p, &git("main"), 44), @"○ ✳ auto main                          3m20s
-  waiting for input");
+        insta::assert_snapshot!(render(&p, &git("main"), 44), @"
+        ○ ✳ main                               3m20s
+          resumed
+        ");
     }
 
     #[test]
@@ -330,16 +423,20 @@ mod tests {
         let mut p = pane(PaneStatus::Background);
         p.bg_shell_cmd = Some("cargo watch -x test".into());
         p.prompt = "this prompt must not win".into();
-        insta::assert_snapshot!(render(&p, &git("main"), 44), @"◎ ✳ auto main                          3m20s
-  $ cargo watch -x test");
+        insta::assert_snapshot!(render(&p, &git("main"), 44), @"
+        ◎ ✳ main                               3m20s
+          $ cargo watch -x test
+        ");
     }
 
     #[test]
     fn body_shows_single_prompt_line_truncated() {
         let mut p = pane(PaneStatus::Running);
         p.prompt = "Add a compact display mode that renders every agent entry in two lines".into();
-        insta::assert_snapshot!(render(&p, &git("main"), 44), @"● ✳ auto main                          3m20s
-  Add a compact display mode that renders e…");
+        insta::assert_snapshot!(render(&p, &git("main"), 44), @"
+        ● ✳ main                               3m20s
+          Add a compact display mode that renders e…
+        ");
     }
 
     #[test]
@@ -347,29 +444,33 @@ mod tests {
         let mut p = pane(PaneStatus::Running);
         p.prompt = "Done — the backend now dispatches by name".into();
         p.prompt_is_response = true;
-        insta::assert_snapshot!(render(&p, &git("main"), 44), @"● ✳ auto main                          3m20s
-  Done — the backend now dispatches by name");
+        insta::assert_snapshot!(render(&p, &git("main"), 44), @"
+        ● ✳ main                               3m20s
+          Done — the backend now dispatches by name
+        ");
     }
 
     #[test]
     fn body_shows_idle_hint_when_idle_without_prompt() {
         let p = pane(PaneStatus::Idle);
-        insta::assert_snapshot!(render(&p, &git("main"), 44), @"○ ✳ auto main                          3m20s
-  Waiting for prompt…");
+        insta::assert_snapshot!(render(&p, &git("main"), 44), @"
+        ○ ✳ main                               3m20s
+          Waiting for prompt…
+        ");
     }
 
     #[test]
     fn body_omits_second_line_when_there_is_nothing_to_report() {
         // Running with no prompt, no wait reason, no background command.
         let p = pane(PaneStatus::Running);
-        insta::assert_snapshot!(render(&p, &git("main"), 44), @"  ● ✳ auto main                          3m20s");
+        insta::assert_snapshot!(render(&p, &git("main"), 44), @"  ● ✳ main                               3m20s");
     }
 
     #[test]
     fn body_omits_second_line_when_the_prompt_truncates_away() {
         let mut p = pane(PaneStatus::Running);
         p.prompt = "a prompt with no room to render".into();
-        insta::assert_snapshot!(render(&p, &git("main"), 3), @"  ● ✳ auto");
+        insta::assert_snapshot!(render(&p, &git("main"), 3), @"  ● ✳");
     }
 
     #[test]

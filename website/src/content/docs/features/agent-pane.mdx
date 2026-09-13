@@ -126,18 +126,20 @@ Latest user prompt.
 
 Why the agent is waiting — populated from Claude's `Notification`, `PermissionDenied`, and `TeammateIdle` hooks.
 
+One reason is deliberately absent: an agent sitting at an idle prompt is reported by painting its status icon in the waiting colour rather than by a row of its own, leaving the row free for the response you are being asked about.
+
 ## Compact display mode
 
 Press `c` in the agent pane (or set `@sidebar_compact on` before starting the sidebar) to collapse every agent entry to exactly two lines. The setting persists across sidebar restarts via `@sidebar_compact`.
 
-**Line 1** combines the status icon, a provider glyph (`✳` Claude, `◆` Codex, `◇` OpenCode), an optional permission-mode badge, the git branch, and right-aligned elapsed time.
+**Line 1** combines the status icon, a provider glyph (`✳` Claude, `◆` Codex, `◇` OpenCode), a `!` marker when the agent runs with `bypassPermissions`, the git branch, and right-aligned elapsed time.
 
 **Line 2** shows one contextual detail, chosen in this order:
 
-1. Wait reason (when waiting or errored)
+1. Wait reason (when waiting or errored, except an idle prompt — that one shows in the status icon's colour)
 2. Background shell command (`$ cargo watch …`)
 3. Latest prompt (with `▷` for agent responses)
 4. Idle hint (`Waiting for prompt…`)
 5. A muted `-` when there is nothing to report
 
-Compact mode hides the session name, listening ports, task progress, the subagent tree, the `×` worktree remove marker, and prompt continuation lines. Sidebar-spawned worktrees can still be removed with `x`. Override the provider glyphs via `@sidebar_icon_agent_*` if a glyph renders double-width in your terminal.
+Compact mode hides the session name, the permission-mode badge (`auto`, `plan`, `edit`, `dontAsk`, `defer` — `!` survives), listening ports, task progress, the subagent tree, the `×` worktree remove marker, and prompt continuation lines. Sidebar-spawned worktrees can still be removed with `x`. Override the provider glyphs via `@sidebar_icon_agent_*` if a glyph renders double-width in your terminal.

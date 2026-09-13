@@ -44,7 +44,7 @@ Numeric bindings (`focus 1`, `focus 2`, …) jump to the corresponding visible a
 
 `--scope all` navigates agent panes across every tmux session. `--scope session` limits navigation to the session containing the currently active pane. Every agent pane is eligible regardless of status, so idle and waiting agents are included. Navigation wraps at the ends of the eligible list, and pressing a key from a non-agent pane enters the list from the corresponding end.
 
-`--waiting` narrows `next` and `prev` to the agents blocked on you — the same panes the sidebar shows as *waiting for input*, including idle panes held by an `idle_prompt`. It combines with `--scope`, and reports `no agent waiting for input` on the status line when nothing is blocked.
+`--waiting` narrows `next` and `prev` to the agents blocked on you — the same panes the sidebar marks with a waiting-coloured status icon, including idle panes held by an `idle_prompt`. It combines with `--scope`, and reports `no agent waiting for input` on the status line when nothing is blocked.
 
 `focus notification` is a third target alongside `next` and `prev`. Instead of walking the list, it jumps straight to the pane whose desktop notification fired most recently — useful as a "take me to whatever just pinged me" key. It honours `--scope session` the same way `next` and `prev` do.
 

@@ -50,9 +50,18 @@ impl PaneInfo {
     /// reason is only honoured while the pane is idle, because a pane that
     /// went back to work keeps the stale reason until its next wait.
     pub fn needs_user_attention(&self) -> bool {
-        self.attention
-            || matches!(self.status, PaneStatus::Waiting)
-            || (matches!(self.status, PaneStatus::Idle) && self.wait_reason == "idle_prompt")
+        self.attention || matches!(self.status, PaneStatus::Waiting) || self.is_idle_prompt()
+    }
+
+    /// Whether the pane sits at an idle prompt: blocked on the user, but via
+    /// a meta-only notification that left the status at `idle`. The sidebar
+    /// says so by colouring the status icon rather than spending a row on
+    /// the text, so the row body stays free for the agent's last response.
+    ///
+    /// Gated on `Idle` for the same reason as [`Self::needs_user_attention`]:
+    /// `@pane_wait_reason` survives into the pane's next task.
+    pub fn is_idle_prompt(&self) -> bool {
+        matches!(self.status, PaneStatus::Idle) && self.wait_reason == "idle_prompt"
     }
 }
 

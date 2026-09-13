@@ -34,8 +34,11 @@ pub(super) fn status_row(
     let theme = ctx.theme;
 
     let (icon, pulse_color) = running_icon_for(&pane.status, spinner_frame, icons);
-    let icon_color =
-        pulse_color.unwrap_or_else(|| theme.status_color(&pane.status, pane.attention));
+    // `needs_user_attention`, not the raw `attention` flag: a pane held at an
+    // idle prompt is blocked on the user without the flag, and the icon is
+    // the only place that now says so.
+    let icon_color = pulse_color
+        .unwrap_or_else(|| theme.status_color(&pane.status, pane.needs_user_attention()));
     let title_raw: &str = if show_session_names && !pane.session_name.is_empty() {
         &pane.session_name
     } else {
