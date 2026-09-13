@@ -1,4 +1,5 @@
 use super::{AppState, RepoFilter, StatusFilter};
+use crate::ui::text::display_width;
 
 #[derive(Debug, Clone)]
 pub struct RowTarget {
@@ -361,6 +362,36 @@ impl AppState {
             self.activate_selected_pane();
         }
     }
+
+    /// Open the link under an absolute frame cell, if there is one.
+    /// Returns whether a link was found, so the caller can fall through to
+    /// other click handling when there was not.
+    pub fn open_link_at(&self, col: u16, row: u16) -> bool {
+        let Some(url) = self.link_at(col, row) else {
+            return false;
+        };
+        // A failed launch is not worth interrupting the frame for; the row
+        // stays on screen and the user can try again.
+        let _ = crate::link::open(&url, self.link_click_command.as_deref());
+        true
+    }
+
+    /// URL of the hyperlink covering an absolute frame cell, if any.
+    ///
+    /// Reads the same overlays the renderer emits OSC 8 escapes from, so a
+    /// click can only land on text the terminal also considers a link —
+    /// there is no second notion of where links are.
+    pub fn link_at(&self, col: u16, row: u16) -> Option<String> {
+        self.layout
+            .hyperlink_overlays
+            .iter()
+            .find(|overlay| {
+                overlay.y == row
+                    && col >= overlay.x
+                    && col < overlay.x + display_width(&overlay.text) as u16
+            })
+            .map(|overlay| overlay.url.clone())
+    }
 }
 
 #[cfg(test)]
@@ -386,5 +417,63 @@ mod tests {
             state.is_repo_popup_open(),
             "click inside the repo popup must not close it when agents_area_y > 0"
         );
+    }
+
+    // ─── link_at ─────────────────────────────────────────────────
+
+    fn state_with_overlay(x: u16, y: u16, text: &str) -> AppState {
+        let mut state = AppState::new("%99".into());
+        state.layout.hyperlink_overlays = vec![crate::state::HyperlinkOverlay {
+            x,
+            y,
+            text: text.into(),
+            url: "https://example.com/pull/1".into(),
+        }];
+        state
+    }
+
+    #[test]
+    fn link_at_returns_the_url_under_the_click() {
+        let state = state_with_overlay(4, 7, "#412 fix it");
+        assert_eq!(
+            state.link_at(4, 7).as_deref(),
+            Some("https://example.com/pull/1")
+        );
+        assert_eq!(
+            state.link_at(14, 7).as_deref(),
+            Some("https://example.com/pull/1"),
+            "last cell of the text is still the link"
+        );
+    }
+
+    #[test]
+    fn link_at_returns_none_outside_the_text_span() {
+        let state = state_with_overlay(4, 7, "#412 fix it");
+        assert!(state.link_at(3, 7).is_none(), "left of the span");
+        assert!(state.link_at(15, 7).is_none(), "one past the span");
+    }
+
+    #[test]
+    fn link_at_returns_none_on_another_row() {
+        let state = state_with_overlay(4, 7, "#412 fix it");
+        assert!(state.link_at(5, 6).is_none());
+        assert!(state.link_at(5, 8).is_none());
+    }
+
+    #[test]
+    fn link_at_measures_display_width_not_byte_length() {
+        // "✓ 日本" is 4 bytes shorter than it is wide; a byte-length span
+        // would stop short of the last cell.
+        let state = state_with_overlay(0, 0, "✓ 日本");
+        assert_eq!(display_width("✓ 日本"), 6);
+        assert!(state.link_at(5, 0).is_some(), "last cell of a wide glyph");
+        assert!(state.link_at(6, 0).is_none());
+    }
+
+    #[test]
+    fn open_link_at_reports_whether_a_link_was_under_the_click() {
+        let state = state_with_overlay(4, 7, "#412 fix it");
+        assert!(state.open_link_at(5, 7), "hit opens the link");
+        assert!(!state.open_link_at(50, 7), "miss opens nothing");
     }
 }

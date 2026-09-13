@@ -73,7 +73,17 @@ Each line is parsed independently — one malformed line is skipped without affe
 
 ## Links
 
-A row with a `url` renders as a terminal hyperlink (OSC 8). Whether it's clickable depends on your terminal emulator; the sidebar does not open a browser or otherwise handle the click itself.
+A row with a `url` renders as a terminal hyperlink (OSC 8) **and** responds to a plain left-click, which opens it with your platform's opener — `open` on macOS, `xdg-open` elsewhere.
+
+Both paths exist because they fail in different situations. OSC 8 activation is the terminal's business, and the sidebar holds the mouse grab, so a plain click never reaches the terminal's own link handling — in most terminals that leaves the escape sequences as decoration. The click handler covers that. Equally, a terminal that surfaces OSC 8 through hover or a keyboard hint still works, and gets the real URL rather than the truncated row text.
+
+Override the opener with `@sidebar_link_click_command`:
+
+```tmux
+set -g @sidebar_link_click_command "firefox"
+```
+
+The URL is passed as a single argument, so this is a program name or path, not a shell line. The same click handling applies to the PR number in the [Git tab](/tmux-agent-sidebar/features/git-status/).
 
 ## Polling and caching
 

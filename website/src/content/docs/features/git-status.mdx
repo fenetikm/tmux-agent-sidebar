@@ -38,6 +38,10 @@ Each section lists up to 10 entries and collapses the rest into a `+N more` row.
 
 Git data is refreshed from a background polling thread, so interaction with the sidebar stays snappy even in repositories with slow git operations.
 
+## Opening the PR
+
+The PR number renders as a terminal hyperlink and opens on a plain left-click, using `open` / `xdg-open` or whatever `@sidebar_link_click_command` names. See [Custom panel](/tmux-agent-sidebar/features/custom-panel/#links) for why both the escape sequence and the click handler are there.
+
 ## Hiding the tab
 
 ```tmux

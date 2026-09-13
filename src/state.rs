@@ -170,6 +170,9 @@ pub struct AppState {
     /// Empty unless `show_empty_sessions` is on *and* the list is grouped by
     /// session, so the renderer needs no mode check of its own.
     pub empty_sessions: Vec<String>,
+    /// Command used to open a clicked link (`@sidebar_link_click_command`).
+    /// `None` means the platform default.
+    pub link_click_command: Option<String>,
     /// Whether the bottom panel's Activity tab exists
     /// (`@sidebar_show_activity_tab`). Re-read on every layout sync.
     pub show_activity_tab: bool,
@@ -237,6 +240,7 @@ impl AppState {
             sort_mode: crate::group::SortMode::Repository,
             show_empty_sessions: false,
             empty_sessions: vec![],
+            link_click_command: None,
             show_activity_tab: true,
             show_git_tab: true,
             panel_config: None,

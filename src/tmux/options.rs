@@ -103,6 +103,11 @@ pub const SIDEBAR_HIDE_REPO_FILTER: &str = "@sidebar_hide_repo_filter";
 /// Read on every refresh, so a live `tmux set -g` takes effect on the next
 /// cycle. Any unrecognised value means `repository`.
 pub const SIDEBAR_SORTING: &str = "@sidebar_sorting";
+/// Command used to open a bottom-panel link clicked with the mouse. Unset
+/// means the platform default (`open` on macOS, `xdg-open` elsewhere). The
+/// URL is passed as a single argument, so this is a program name or path,
+/// not a shell line.
+pub const SIDEBAR_LINK_CLICK_COMMAND: &str = "@sidebar_link_click_command";
 /// Show the bottom panel's Activity tab. On by default. Re-read on every
 /// layout sync, so a live `tmux set -g` takes effect on the next cycle.
 pub const SIDEBAR_SHOW_ACTIVITY_TAB: &str = "@sidebar_show_activity_tab";

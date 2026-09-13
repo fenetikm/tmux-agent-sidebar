@@ -16,6 +16,7 @@ Most options must be set **before** loading the plugin in your `tmux.conf`. Colo
 | `@sidebar_width`                 | `15%`   | Width in columns or as a percentage                                                     |
 | `@sidebar_position`              | `left`  | Sidebar placement (`left` or `right`)                                                   |
 | `@sidebar_bottom_height`         | `20`    | Bottom panel height in lines (set `0` to hide)                                          |
+| `@sidebar_link_click_command`    | unset   | Program used to open a bottom-panel link clicked with the mouse. Unset means `open` on macOS, `xdg-open` elsewhere. The URL is passed as a single argument, so this is a program name or path, not a shell line |
 | `@sidebar_show_activity_tab`     | `on`    | Show the bottom panel's Activity tab. Set `off` to hide it |
 | `@sidebar_show_git_tab`          | `on`    | Show the bottom panel's Git tab. Set `off` to hide it. Turning off every tab collapses the bottom panel entirely, like `@sidebar_bottom_height 0`. Both tab toggles are re-read on focus change, so they can be changed live |
 | `@sidebar_show_session_names`    | `on`    | Show Claude `/rename` session labels in pane rows. Set `off` to always show the agent label (`claude`, `codex`, `opencode`) |

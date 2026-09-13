@@ -26,7 +26,13 @@ pub(super) fn handle_event(
             match mouse.kind {
                 MouseEventKind::Down(MouseButton::Left) => {
                     let bottom_start = term_height.saturating_sub(bottom_h);
-                    if mouse.row < bottom_start {
+                    // Links win over every other click target. The sidebar
+                    // holds the mouse grab, so a plain click never reaches
+                    // the terminal's own OSC 8 handling; without this the
+                    // rendered hyperlinks are decoration.
+                    if state.open_link_at(mouse.column, mouse.row) {
+                        // Handled by the browser; no sidebar state changes.
+                    } else if mouse.row < bottom_start {
                         state.handle_mouse_click(mouse.row, mouse.column);
                     } else if mouse.row == bottom_start {
                         state.handle_bottom_tab_click(mouse.column);

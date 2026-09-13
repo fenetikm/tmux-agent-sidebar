@@ -139,6 +139,15 @@ pub fn show_empty_sessions_from_options(opts: &HashMap<String, String>) -> bool 
         .unwrap_or(false)
 }
 
+/// Read `@sidebar_link_click_command` from tmux global options. Unset or
+/// blank yields `None`, which means the platform default opener.
+pub fn link_click_command_from_options(opts: &HashMap<String, String>) -> Option<String> {
+    opts.get(tmux::SIDEBAR_LINK_CLICK_COMMAND)
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
 /// Read `@sidebar_show_activity_tab` from tmux global options, defaulting to
 /// `true` so the tab keeps showing for users who never set it.
 /// Accepts `on`/`off`, `true`/`false`, `1`/`0` (case-insensitive).
@@ -174,6 +183,7 @@ pub fn apply_sidebar_ui_options(state: &mut AppState, opts: &HashMap<String, Str
     state.hide_repo_filter = hide_repo_filter_from_options(opts);
     state.sort_mode = sort_mode_from_options(opts);
     state.show_empty_sessions = show_empty_sessions_from_options(opts);
+    state.link_click_command = link_click_command_from_options(opts);
     state.show_activity_tab = show_activity_tab_from_options(opts);
     state.show_git_tab = show_git_tab_from_options(opts);
     if state.hide_filter_bar && state.focus_state.focus == crate::state::Focus::Filter {
@@ -534,5 +544,27 @@ mod tests {
             state.show_activity_tab,
             "untouched option keeps its default"
         );
+    }
+
+    #[test]
+    fn link_click_command_defaults_to_unset() {
+        assert_eq!(link_click_command_from_options(&HashMap::new()), None);
+    }
+
+    #[test]
+    fn link_click_command_reads_the_option() {
+        let opts = opts_with(tmux::SIDEBAR_LINK_CLICK_COMMAND, "firefox");
+        assert_eq!(
+            link_click_command_from_options(&opts).as_deref(),
+            Some("firefox")
+        );
+    }
+
+    #[test]
+    fn apply_sidebar_ui_options_reads_the_link_click_command() {
+        let mut state = AppState::new("%0".into());
+        let opts = opts_with(tmux::SIDEBAR_LINK_CLICK_COMMAND, "firefox");
+        apply_sidebar_ui_options(&mut state, &opts);
+        assert_eq!(state.link_click_command.as_deref(), Some("firefox"));
     }
 }
