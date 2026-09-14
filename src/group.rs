@@ -3,7 +3,6 @@ use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
 
-use crate::git::run_git;
 use crate::state::{RepoFilter, StatusFilter};
 use crate::tmux::PaneInfo;
 
@@ -43,19 +42,21 @@ pub struct RepoGroup {
     pub panes: Vec<(PaneInfo, PaneGitInfo)>,
 }
 
-/// How long a pane path's git info is trusted before `git rev-parse` is run
-/// again. A branch switch shows up in the sidebar within this window.
+/// How long a pane path's git info is trusted before it is re-read from
+/// disk. A branch switch shows up in the sidebar within this window.
 ///
 /// This exists because every sidebar instance calls [`group_panes`] once a
 /// second, and each call used to run one or two `git` processes per agent
 /// pane. With a sidebar per window that is `sidebars × panes` forks per
 /// second — measured at ~245/s on a busy day, which after six hours wedged
-/// launchd and opendirectoryd badly enough to need a hard reboot.
+/// launchd and opendirectoryd badly enough to need a hard reboot. The
+/// resolver no longer forks at all ([`resolve_pane_git_info`] reads the
+/// `.git` layout directly); the cache now just bounds filesystem reads.
 pub const GIT_INFO_TTL: Duration = Duration::from_secs(30);
 
 /// Per-path cache of [`PaneGitInfo`] that survives across refresh ticks.
 /// Negative results (non-git directories) are cached too: they are the
-/// expensive case, costing two `git` spawns per miss.
+/// expensive case, walking every ancestor up to `/` per miss.
 #[derive(Debug, Default)]
 pub struct GitInfoCache {
     entries: HashMap<String, GitInfoEntry>,
@@ -115,52 +116,39 @@ impl GitInfoCache {
     }
 }
 
-/// Resolve git info for a single pane path.
+/// Resolve git info for a single pane path by reading the repository's
+/// on-disk layout directly — no `git` process is spawned.
+///
+/// Every sidebar calls this (via [`group_panes_with_cache`]) for every
+/// agent pane path, so a fork here multiplies by `sidebars × panes`. The
+/// files involved are stable, documented git internals: `.git` (directory,
+/// or a `gitdir:` pointer file for linked worktrees and submodules), the
+/// git dir's `HEAD`, and — only in a linked worktree — its `commondir`
+/// back-reference to the main repository's `.git`.
 pub fn resolve_pane_git_info(path: &str) -> PaneGitInfo {
     if path.is_empty() {
         return PaneGitInfo::default();
     }
 
-    // Single git call for all three values (one line per arg)
-    let combined = run_git(
-        path,
-        &[
-            "rev-parse",
-            "--abbrev-ref",
-            "HEAD",
-            "--git-common-dir",
-            "--git-dir",
-        ],
-    );
-    let (branch, git_common_dir, git_dir) = match combined {
-        Some(output) => {
-            let mut lines = output.lines();
-            let b = lines.next().map(|s| s.to_string());
-            let c = lines.next().map(|s| s.to_string());
-            let d = lines.next().map(|s| s.to_string());
-            (b, c, d)
-        }
-        None => (None, None, None),
+    let Some((work_root, git_dir)) = discover_git_dir(std::path::Path::new(path)) else {
+        return PaneGitInfo::default();
     };
 
-    let is_worktree = match (&git_common_dir, &git_dir) {
-        (Some(common), Some(dir)) => {
-            let common_path = resolve_git_path(path, common);
-            let dir_path = resolve_git_path(path, dir);
-            common_path != dir_path
-        }
-        _ => false,
-    };
+    let branch = read_head_branch(&git_dir);
 
-    // --git-common-dir returns the .git dir of the main worktree;
-    // its parent is the repo root, so worktrees share the same group key.
-    let repo_root = git_common_dir
-        .as_ref()
-        .and_then(|common| {
-            let abs = resolve_git_path(path, common);
-            abs.parent().map(|p| p.to_string_lossy().to_string())
-        })
-        .or_else(|| run_git(path, &["rev-parse", "--show-toplevel"]));
+    // Only a linked worktree's git dir carries a `commondir` file; the
+    // main checkout's `.git` never does. That is the same rule git uses
+    // for `--git-common-dir`, so `is_worktree` matches what `git rev-parse`
+    // used to report. Worktrees group under the main checkout, whose root
+    // is the parent of the common dir.
+    let common_dir = std::fs::read_to_string(git_dir.join("commondir"))
+        .ok()
+        .map(|rel| resolve_git_path(&git_dir.to_string_lossy(), rel.trim()));
+    let is_worktree = common_dir.is_some();
+    let repo_root = match common_dir {
+        Some(common) => common.parent().map(|p| p.to_string_lossy().into_owned()),
+        None => Some(work_root.to_string_lossy().into_owned()),
+    };
 
     PaneGitInfo {
         repo_root,
@@ -168,6 +156,50 @@ pub fn resolve_pane_git_info(path: &str) -> PaneGitInfo {
         is_worktree,
         worktree_name: None,
     }
+}
+
+/// Walk up from `path` to the nearest directory holding a `.git` entry.
+/// Returns `(work_root, git_dir)`, both canonicalised where possible. A
+/// `.git` *file* is a `gitdir: <path>` pointer (linked worktree or
+/// submodule) resolved relative to the directory that contains it.
+fn discover_git_dir(path: &std::path::Path) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    for dir in path.ancestors() {
+        let dot_git = dir.join(".git");
+        let meta = match std::fs::symlink_metadata(&dot_git) {
+            Ok(meta) => meta,
+            Err(_) => continue,
+        };
+        let work_root = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+        if meta.is_dir() {
+            let git_dir = dot_git.canonicalize().unwrap_or(dot_git);
+            return Some((work_root, git_dir));
+        }
+        let pointer = std::fs::read_to_string(&dot_git).ok()?;
+        let target = pointer.trim().strip_prefix("gitdir:")?.trim();
+        let git_dir = resolve_git_path(&dir.to_string_lossy(), target);
+        return Some((work_root, git_dir));
+    }
+    None
+}
+
+/// Branch name from the git dir's `HEAD`, matching what
+/// `git rev-parse --abbrev-ref HEAD` printed: the short branch name for a
+/// symbolic ref, or the literal `HEAD` when detached. Unlike `rev-parse`,
+/// an unborn branch (fresh `git init`, no commits) still yields its name.
+fn read_head_branch(git_dir: &std::path::Path) -> Option<String> {
+    let head = std::fs::read_to_string(git_dir.join("HEAD")).ok()?;
+    let head = head.trim();
+    if head.is_empty() {
+        return None;
+    }
+    Some(match head.strip_prefix("ref:") {
+        Some(target) => target
+            .trim()
+            .strip_prefix("refs/heads/")
+            .unwrap_or(target.trim())
+            .to_string(),
+        None => "HEAD".to_string(),
+    })
 }
 
 /// Group all panes across all sessions.
@@ -190,7 +222,7 @@ pub fn group_panes(sessions: &[crate::tmux::SessionInfo], mode: SortMode) -> Vec
 }
 
 /// [`group_panes`] with a caller-owned [`GitInfoCache`], so repeated calls
-/// only spawn `git` for paths that are new or older than [`GIT_INFO_TTL`].
+/// only re-resolve paths that are new or older than [`GIT_INFO_TTL`].
 /// Entries for paths no longer present in `sessions` are evicted.
 pub fn group_panes_with_cache(
     sessions: &[crate::tmux::SessionInfo],
@@ -342,6 +374,144 @@ mod tests {
         assert!(info.repo_root.is_some());
     }
 
+    // ─── fork-free resolve_pane_git_info tests ──────────────────────
+    //
+    // Fixtures are built by hand — a `.git` directory holding only `HEAD`,
+    // which `git` itself refuses to recognise as a repository — so these
+    // pass only if the resolver reads the files directly and never spawns
+    // `git`. That is the property that matters: `group_panes` runs this
+    // once per pane path per sidebar, and spawning `git` there is what
+    // took the machine down (see `GIT_INFO_TTL`).
+
+    fn fake_repo(root: &std::path::Path, head: &str) {
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::write(root.join(".git/HEAD"), head).unwrap();
+    }
+
+    /// Lay out a linked worktree at `wt` the way `git worktree add` does:
+    /// `wt/.git` is a file pointing at `main/.git/worktrees/<name>`, which
+    /// holds its own `HEAD` plus a `commondir` back-reference.
+    fn fake_worktree(main: &std::path::Path, wt: &std::path::Path, name: &str, head: &str) {
+        let gitdir = main.join(".git/worktrees").join(name);
+        std::fs::create_dir_all(&gitdir).unwrap();
+        std::fs::write(gitdir.join("HEAD"), head).unwrap();
+        std::fs::write(gitdir.join("commondir"), "../..\n").unwrap();
+        std::fs::create_dir_all(wt).unwrap();
+        std::fs::write(wt.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();
+    }
+
+    fn canon(p: &std::path::Path) -> String {
+        std::fs::canonicalize(p)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    #[test]
+    fn resolve_git_info_reads_branch_from_head_without_git() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        fake_repo(&root, "ref: refs/heads/feat/x\n");
+
+        let info = resolve_pane_git_info(root.to_str().unwrap());
+
+        assert_eq!(info.branch.as_deref(), Some("feat/x"));
+        assert_eq!(info.repo_root, Some(canon(&root)));
+        assert!(!info.is_worktree);
+    }
+
+    #[test]
+    fn resolve_git_info_walks_up_from_subdirectory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        fake_repo(&root, "ref: refs/heads/main\n");
+        let deep = root.join("sub/deep");
+        std::fs::create_dir_all(&deep).unwrap();
+
+        let info = resolve_pane_git_info(deep.to_str().unwrap());
+
+        assert_eq!(info.branch.as_deref(), Some("main"));
+        assert_eq!(info.repo_root, Some(canon(&root)));
+        assert!(!info.is_worktree);
+    }
+
+    #[test]
+    fn resolve_git_info_detached_head_reports_head_like_git() {
+        // `git rev-parse --abbrev-ref HEAD` prints the literal `HEAD` when
+        // detached; keep that so the row renders the same as before.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        fake_repo(&root, "4ed29f40bfcb1d6421b115b46752b803f6b8797d\n");
+
+        let info = resolve_pane_git_info(root.to_str().unwrap());
+
+        assert_eq!(info.branch.as_deref(), Some("HEAD"));
+        assert_eq!(info.repo_root, Some(canon(&root)));
+    }
+
+    #[test]
+    fn resolve_git_info_worktree_shares_main_repo_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let main = tmp.path().join("main");
+        let wt = tmp.path().join("wt");
+        fake_repo(&main, "ref: refs/heads/main\n");
+        fake_worktree(&main, &wt, "wt", "ref: refs/heads/wt-branch\n");
+
+        let info = resolve_pane_git_info(wt.to_str().unwrap());
+
+        assert!(info.is_worktree, "linked worktree must be flagged");
+        assert_eq!(info.branch.as_deref(), Some("wt-branch"));
+        assert_eq!(
+            info.repo_root,
+            Some(canon(&main)),
+            "worktree groups under the main checkout"
+        );
+    }
+
+    #[test]
+    fn resolve_git_info_worktree_resolves_relative_gitdir() {
+        // `.git` files written by some tools (and by git for submodules)
+        // use a path relative to the directory holding the `.git` file.
+        let tmp = tempfile::tempdir().unwrap();
+        let main = tmp.path().join("main");
+        let wt = tmp.path().join("wt");
+        fake_repo(&main, "ref: refs/heads/main\n");
+        fake_worktree(&main, &wt, "wt", "ref: refs/heads/wt-branch\n");
+        std::fs::write(wt.join(".git"), "gitdir: ../main/.git/worktrees/wt\n").unwrap();
+
+        let info = resolve_pane_git_info(wt.to_str().unwrap());
+
+        assert!(info.is_worktree);
+        assert_eq!(info.branch.as_deref(), Some("wt-branch"));
+        assert_eq!(info.repo_root, Some(canon(&main)));
+    }
+
+    #[test]
+    fn resolve_git_info_non_repo_returns_default() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("plain");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let info = resolve_pane_git_info(dir.to_str().unwrap());
+
+        assert!(info.repo_root.is_none());
+        assert!(info.branch.is_none());
+        assert!(!info.is_worktree);
+    }
+
+    #[test]
+    fn resolve_git_info_missing_path_returns_default() {
+        // A pane whose cwd was deleted still reports a path; walking a
+        // nonexistent ancestor chain must not panic or find a stray repo.
+        let tmp = tempfile::tempdir().unwrap();
+        let gone = tmp.path().join("gone/away");
+
+        let info = resolve_pane_git_info(gone.to_str().unwrap());
+
+        assert!(info.repo_root.is_none());
+        assert!(info.branch.is_none());
+    }
+
     // ─── resolve_git_path tests ─────────────────────────────────────
 
     #[test]
@@ -383,7 +553,7 @@ mod tests {
         assert_eq!(
             calls.get(),
             1,
-            "second lookup within TTL must not spawn git"
+            "second lookup within TTL must not re-resolve"
         );
         assert_eq!(first.repo_root, second.repo_root);
         assert_eq!(first.branch, second.branch);
@@ -403,8 +573,8 @@ mod tests {
 
     #[test]
     fn git_info_cache_caches_non_git_paths_too() {
-        // A non-git directory is the expensive case (two git spawns), so the
-        // negative result must be cached just like a positive one.
+        // A non-git directory is the expensive case (an ancestor walk to
+        // `/`), so the negative result must be cached just like a positive one.
         let calls = std::cell::Cell::new(0);
         let mut cache = GitInfoCache::new();
         let t0 = std::time::Instant::now();

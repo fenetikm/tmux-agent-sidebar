@@ -73,7 +73,7 @@ Per-pane file-based state:
 | Field | Update Frequency | Description |
 |-------|-----------------|-------------|
 | `repo_groups` | Every 1s | Panes grouped by git repo root (built directly from `tmux::query_sessions()` output, not stored separately as a session list) |
-| `git_info_cache` | Every 1s, entries refreshed every 30s | Per-path `PaneGitInfo` reused by `group_panes` across ticks so `git rev-parse` runs at most once per path per `GIT_INFO_TTL`, not once per pane per second per sidebar |
+| `git_info_cache` | Every 1s, entries refreshed every 30s | Per-path `PaneGitInfo` reused by `group_panes` across ticks. `resolve_pane_git_info` reads `.git`/`HEAD`/`commondir` from disk (no `git` process), and the cache bounds those reads to once per path per `GIT_INFO_TTL` |
 | `focus_state.focused_pane_id` | Every 1s, plus immediately on user-initiated pane jumps | Currently focused agent pane |
 | `focus_state.sidebar_focused` | Every 1s | Whether sidebar pane itself has focus |
 | `focus_state.focus` | On user input | UI focus: `Filter` / `Panes` / `ActivityLog`; input also triggers an immediate redraw so focus changes appear without waiting for the next poll tick |
