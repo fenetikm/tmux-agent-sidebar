@@ -48,6 +48,9 @@ pub enum BottomTab {
 pub struct AppState {
     pub now: u64,
     pub repo_groups: Vec<crate::group::RepoGroup>,
+    /// Per-path git info reused across refresh ticks so `group_panes` does
+    /// not spawn `git` for every agent pane every second.
+    pub git_info_cache: crate::group::GitInfoCache,
     /// Sidebar focus + pane focus tracking (sidebar_focused, focus,
     /// focused_pane_id, prev_focused_pane_id).
     pub focus_state: FocusState,
@@ -197,6 +200,7 @@ impl AppState {
         let mut state = Self {
             now: 0,
             repo_groups: vec![],
+            git_info_cache: crate::group::GitInfoCache::new(),
             focus_state: FocusState::new(),
             flash: None,
             spinner_frame: 0,

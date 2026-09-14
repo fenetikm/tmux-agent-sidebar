@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+
 use indexmap::IndexMap;
 
 use crate::git::run_git;
@@ -38,6 +41,78 @@ pub struct RepoGroup {
     pub has_focus: bool,
     /// Panes in this group, with their git info
     pub panes: Vec<(PaneInfo, PaneGitInfo)>,
+}
+
+/// How long a pane path's git info is trusted before `git rev-parse` is run
+/// again. A branch switch shows up in the sidebar within this window.
+///
+/// This exists because every sidebar instance calls [`group_panes`] once a
+/// second, and each call used to run one or two `git` processes per agent
+/// pane. With a sidebar per window that is `sidebars × panes` forks per
+/// second — measured at ~245/s on a busy day, which after six hours wedged
+/// launchd and opendirectoryd badly enough to need a hard reboot.
+pub const GIT_INFO_TTL: Duration = Duration::from_secs(30);
+
+/// Per-path cache of [`PaneGitInfo`] that survives across refresh ticks.
+/// Negative results (non-git directories) are cached too: they are the
+/// expensive case, costing two `git` spawns per miss.
+#[derive(Debug, Default)]
+pub struct GitInfoCache {
+    entries: HashMap<String, GitInfoEntry>,
+}
+
+#[derive(Debug)]
+struct GitInfoEntry {
+    info: PaneGitInfo,
+    resolved_at: Instant,
+}
+
+impl GitInfoCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Return the cached info for `path` when it is younger than
+    /// [`GIT_INFO_TTL`], otherwise call `resolver`, store, and return.
+    pub fn get_or_resolve<F>(&mut self, path: &str, now: Instant, resolver: F) -> PaneGitInfo
+    where
+        F: FnOnce(&str) -> PaneGitInfo,
+    {
+        if let Some(entry) = self.entries.get(path)
+            && now.duration_since(entry.resolved_at) < GIT_INFO_TTL
+        {
+            return entry.info.clone();
+        }
+        let info = resolver(path);
+        self.entries.insert(
+            path.to_string(),
+            GitInfoEntry {
+                info: info.clone(),
+                resolved_at: now,
+            },
+        );
+        info
+    }
+
+    /// Drop every entry whose path is not in `paths`, so the cache tracks
+    /// the panes that currently exist rather than growing forever.
+    pub fn retain_only(&mut self, paths: &[String]) {
+        self.entries.retain(|path, _| paths.contains(path));
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// When `path` was last resolved, if it is cached. Test seam.
+    #[cfg(test)]
+    pub fn resolved_at(&self, path: &str) -> Option<Instant> {
+        self.entries.get(path).map(|e| e.resolved_at)
+    }
 }
 
 /// Resolve git info for a single pane path.
@@ -107,25 +182,32 @@ pub fn resolve_pane_git_info(path: &str) -> PaneGitInfo {
 /// key degenerates to the display name and the order is unchanged. The
 /// attached session is not pinned to the top: a block that moves when you
 /// switch sessions is harder to build a spatial memory of.
+///
+/// One-shot form for CLI callers: resolves git info fresh. The TUI, which
+/// calls this every second, must use [`group_panes_with_cache`] instead.
 pub fn group_panes(sessions: &[crate::tmux::SessionInfo], mode: SortMode) -> Vec<RepoGroup> {
+    group_panes_with_cache(sessions, mode, &mut GitInfoCache::new(), Instant::now())
+}
+
+/// [`group_panes`] with a caller-owned [`GitInfoCache`], so repeated calls
+/// only spawn `git` for paths that are new or older than [`GIT_INFO_TTL`].
+/// Entries for paths no longer present in `sessions` are evicted.
+pub fn group_panes_with_cache(
+    sessions: &[crate::tmux::SessionInfo],
+    mode: SortMode,
+    git_cache: &mut GitInfoCache,
+    now: Instant,
+) -> Vec<RepoGroup> {
     let mut groups: IndexMap<(Option<String>, String), RepoGroup> = IndexMap::new();
-    let mut git_cache: std::collections::HashMap<String, PaneGitInfo> =
-        std::collections::HashMap::new();
+    let mut seen_paths: Vec<String> = Vec::new();
 
     for session in sessions {
         for window in &session.windows {
             for pane in &window.panes {
-                // Cache the base git info per path. `get` first avoids a key
-                // clone on cache hits; misses fall through to `insert` which
-                // owns the key plus the (expensive) git-command lookup.
-                let mut git_info = match git_cache.get(pane.path.as_str()) {
-                    Some(cached) => cached.clone(),
-                    None => {
-                        let resolved = resolve_pane_git_info(&pane.path);
-                        git_cache.insert(pane.path.clone(), resolved.clone());
-                        resolved
-                    }
-                };
+                if !seen_paths.contains(&pane.path) {
+                    seen_paths.push(pane.path.clone());
+                }
+                let mut git_info = git_cache.get_or_resolve(&pane.path, now, resolve_pane_git_info);
 
                 // Override with hook-provided worktree info (Claude Code
                 // provides this; Codex does not, so the git-command base
@@ -170,6 +252,8 @@ pub fn group_panes(sessions: &[crate::tmux::SessionInfo], mode: SortMode) -> Vec
             }
         }
     }
+
+    git_cache.retain_only(&seen_paths);
 
     let mut result: Vec<RepoGroup> = groups.into_values().collect();
     result.sort_by_key(|group| {
@@ -270,6 +354,116 @@ mod tests {
     fn resolve_git_path_relative() {
         let result = resolve_git_path("/base/dir", "relative");
         assert_eq!(result, std::path::PathBuf::from("/base/dir/relative"));
+    }
+
+    // ─── GitInfoCache tests ─────────────────────────────────────────
+
+    fn counting_resolver(calls: &std::cell::Cell<u32>) -> impl Fn(&str) -> PaneGitInfo + '_ {
+        move |path| {
+            calls.set(calls.get() + 1);
+            PaneGitInfo {
+                repo_root: Some(path.to_string()),
+                branch: Some("main".into()),
+                is_worktree: false,
+                worktree_name: None,
+            }
+        }
+    }
+
+    #[test]
+    fn git_info_cache_resolves_a_path_once_within_ttl() {
+        let calls = std::cell::Cell::new(0);
+        let mut cache = GitInfoCache::new();
+        let t0 = std::time::Instant::now();
+
+        let first = cache.get_or_resolve("/repo", t0, counting_resolver(&calls));
+        let second =
+            cache.get_or_resolve("/repo", t0 + GIT_INFO_TTL / 2, counting_resolver(&calls));
+
+        assert_eq!(
+            calls.get(),
+            1,
+            "second lookup within TTL must not spawn git"
+        );
+        assert_eq!(first.repo_root, second.repo_root);
+        assert_eq!(first.branch, second.branch);
+    }
+
+    #[test]
+    fn git_info_cache_re_resolves_after_ttl() {
+        let calls = std::cell::Cell::new(0);
+        let mut cache = GitInfoCache::new();
+        let t0 = std::time::Instant::now();
+
+        cache.get_or_resolve("/repo", t0, counting_resolver(&calls));
+        cache.get_or_resolve("/repo", t0 + GIT_INFO_TTL, counting_resolver(&calls));
+
+        assert_eq!(calls.get(), 2, "lookup at or past TTL must resolve again");
+    }
+
+    #[test]
+    fn git_info_cache_caches_non_git_paths_too() {
+        // A non-git directory is the expensive case (two git spawns), so the
+        // negative result must be cached just like a positive one.
+        let calls = std::cell::Cell::new(0);
+        let mut cache = GitInfoCache::new();
+        let t0 = std::time::Instant::now();
+        let resolver = |_: &str| {
+            calls.set(calls.get() + 1);
+            PaneGitInfo::default()
+        };
+
+        cache.get_or_resolve("/not/a/repo", t0, resolver);
+        let info = cache.get_or_resolve("/not/a/repo", t0 + GIT_INFO_TTL / 2, resolver);
+
+        assert_eq!(calls.get(), 1);
+        assert!(info.repo_root.is_none());
+    }
+
+    #[test]
+    fn git_info_cache_retain_drops_paths_no_longer_present() {
+        let calls = std::cell::Cell::new(0);
+        let mut cache = GitInfoCache::new();
+        let t0 = std::time::Instant::now();
+
+        cache.get_or_resolve("/a", t0, counting_resolver(&calls));
+        cache.get_or_resolve("/b", t0, counting_resolver(&calls));
+        cache.retain_only(&["/a".to_string()]);
+
+        assert_eq!(cache.len(), 1);
+        cache.get_or_resolve("/b", t0, counting_resolver(&calls));
+        assert_eq!(
+            calls.get(),
+            3,
+            "/b was evicted so it must be resolved again"
+        );
+    }
+
+    #[test]
+    fn group_panes_with_cache_reuses_git_info_across_ticks() {
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let sessions = vec![test_session(vec![test_window(
+            vec![test_pane("%1", manifest_dir)],
+            true,
+        )])];
+        let mut cache = GitInfoCache::new();
+        let t0 = std::time::Instant::now();
+
+        group_panes_with_cache(&sessions, SortMode::Repository, &mut cache, t0);
+        let resolved_at = cache.resolved_at(manifest_dir);
+        group_panes_with_cache(
+            &sessions,
+            SortMode::Repository,
+            &mut cache,
+            t0 + GIT_INFO_TTL / 2,
+        );
+
+        assert_eq!(cache.len(), 1);
+        assert_eq!(
+            cache.resolved_at(manifest_dir),
+            resolved_at,
+            "second tick within TTL must reuse the cached entry"
+        );
     }
 
     // ─── group_panes tests ──────────────────────────────────────────

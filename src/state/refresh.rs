@@ -96,7 +96,12 @@ impl AppState {
                     .map(|(p, _)| (p.pane_id.clone(), p.session_id.clone()))
             })
             .collect();
-        self.repo_groups = crate::group::group_panes(&sessions, self.sort_mode);
+        self.repo_groups = crate::group::group_panes_with_cache(
+            &sessions,
+            self.sort_mode,
+            &mut self.git_info_cache,
+            std::time::Instant::now(),
+        );
         if !self.session_names.dirty
             && self
                 .repo_groups
@@ -1059,6 +1064,26 @@ mod tests {
         assert!(
             !state.session_names.dirty,
             "session_names_dirty must remain clear when nothing changed"
+        );
+    }
+
+    #[test]
+    fn apply_session_snapshot_reuses_git_info_across_ticks() {
+        // Two consecutive ticks with the same pane must not resolve git
+        // info twice: that is one or two `git` spawns per pane per second
+        // per sidebar, which is what took the machine down.
+        let mut state = AppState::new("%99".into());
+        let sessions = || test_session(vec![test_pane("%1")]);
+
+        state.apply_session_snapshot(false, sessions(), &[]);
+        let first = state.git_info_cache.resolved_at("/tmp");
+        state.apply_session_snapshot(false, sessions(), &[]);
+
+        assert_eq!(state.git_info_cache.len(), 1);
+        assert_eq!(
+            state.git_info_cache.resolved_at("/tmp"),
+            first,
+            "second tick must reuse the cached git info"
         );
     }
 
