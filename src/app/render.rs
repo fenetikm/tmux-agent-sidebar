@@ -1,7 +1,8 @@
-use std::io::{self, Write as _};
+use std::io::{self, Write};
 
+use crossterm::style::{ContentStyle, PrintStyledContent};
 use crossterm::{cursor::MoveTo, execute};
-use ratatui::{Terminal, backend::CrosstermBackend};
+use ratatui::{Terminal, backend::CrosstermBackend, backend::IntoCrossterm};
 
 use crate::clipboard;
 use crate::git::{self, GitData};
@@ -66,19 +67,26 @@ pub(super) fn refresh_git_for_focused_pane_with<FGetPath, FFetchGit, FApply>(
 }
 
 /// Write OSC 8 hyperlink escape sequences over already-rendered PR text.
-pub(super) fn write_hyperlink_overlays(
-    backend: &mut CrosstermBackend<io::Stdout>,
+///
+/// Generic over the writer so the emitted bytes can be asserted in tests;
+/// callers pass the crossterm backend.
+pub(super) fn write_hyperlink_overlays<W: Write>(
+    out: &mut W,
     overlays: &[HyperlinkOverlay],
 ) -> io::Result<()> {
     for overlay in overlays {
-        execute!(backend, MoveTo(overlay.x, overlay.y))?;
+        execute!(out, MoveTo(overlay.x, overlay.y))?;
         // OSC 8: open hyperlink
-        write!(backend, "\x1b]8;;{}\x1b\\", overlay.url)?;
-        // Re-write the text so the terminal associates these cells with the link
-        write!(backend, "{}", overlay.text)?;
+        write!(out, "\x1b]8;;{}\x1b\\", overlay.url)?;
+        // Re-write the text so the terminal associates these cells with the
+        // link, restoring the style the frame drew it with. Printing it bare
+        // repaints the row in whatever SGR state the terminal was left in,
+        // which flattens every linked row to one colour.
+        let style: ContentStyle = overlay.style.into_crossterm();
+        execute!(out, PrintStyledContent(style.apply(overlay.text.as_str())))?;
         // OSC 8: close hyperlink
-        write!(backend, "\x1b]8;;\x1b\\")?;
-        backend.flush()?;
+        write!(out, "\x1b]8;;\x1b\\")?;
+        out.flush()?;
     }
     Ok(())
 }
@@ -86,6 +94,32 @@ pub(super) fn write_hyperlink_overlays(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::style::{Color, Style};
+
+    #[test]
+    fn test_hyperlink_overlay_reprints_text_in_its_own_style() {
+        let overlays = vec![HyperlinkOverlay {
+            x: 2,
+            y: 3,
+            text: "#412 fix".into(),
+            url: "https://example.com/pull/412".into(),
+            style: Style::default().fg(Color::Rgb(0x57, 0x57, 0x5e)),
+        }];
+        let mut out: Vec<u8> = Vec::new();
+        write_hyperlink_overlays(&mut out, &overlays).unwrap();
+        let out = String::from_utf8(out).unwrap();
+
+        // The colour has to land before the reprinted text: without it the
+        // terminal paints these cells in whatever SGR state the frame ended
+        // in, flattening every linked row to a single colour.
+        let sgr = out
+            .find("38;2;87;87;94")
+            .expect("foreground colour emitted");
+        let text = out.find("#412 fix").expect("text reprinted");
+        assert!(sgr < text, "colour must precede the text: {out:?}");
+        assert!(out.contains("\x1b]8;;https://example.com/pull/412\x1b\\"));
+        assert!(out.ends_with("\x1b]8;;\x1b\\"), "link left open: {out:?}");
+    }
 
     #[test]
     fn test_refresh_git_for_focused_pane_with_fetches_and_applies_git_data() {

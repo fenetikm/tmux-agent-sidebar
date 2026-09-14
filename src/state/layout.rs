@@ -46,6 +46,11 @@ pub struct HyperlinkOverlay {
     pub y: u16,
     pub text: String,
     pub url: String,
+    /// Style the text was rendered with. Writing the OSC 8 overlay reprints
+    /// these cells outside ratatui's buffer, so without carrying the style
+    /// along the reprint lands in whatever SGR state the terminal was left
+    /// in — every linked row ends up the same colour.
+    pub style: ratatui::style::Style,
 }
 
 /// Click region for one bottom-panel tab title. Computed during render
@@ -428,6 +433,7 @@ mod tests {
             y,
             text: text.into(),
             url: "https://example.com/pull/1".into(),
+            style: ratatui::style::Style::default(),
         }];
         state
     }

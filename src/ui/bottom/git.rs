@@ -75,6 +75,7 @@ pub(super) fn draw_git_content(frame: &mut Frame, state: &mut AppState, inner: R
                 y: inner.y + 1,
                 text: info.text,
                 url: info.url,
+                style: info.style,
             });
     }
 

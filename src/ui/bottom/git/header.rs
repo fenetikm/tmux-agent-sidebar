@@ -14,6 +14,8 @@ pub(super) struct PrLinkInfo {
     pub(super) text: String,
     /// Full URL to open.
     pub(super) url: String,
+    /// Style the link text was rendered with, replayed by the OSC 8 overlay.
+    pub(super) style: Style,
 }
 
 /// Render the fixed header: branch+PR line, diff summary line, separator.
@@ -88,12 +90,10 @@ pub(super) fn render_git_header(
             if movement_w > 0 {
                 left_spans.push(Span::raw(" "));
             }
-            left_spans.push(Span::styled(
-                pr.clone(),
-                Style::default()
-                    .fg(theme.pr_link)
-                    .add_modifier(Modifier::UNDERLINED),
-            ));
+            let pr_style = Style::default()
+                .fg(theme.pr_link)
+                .add_modifier(Modifier::UNDERLINED);
+            left_spans.push(Span::styled(pr.clone(), pr_style));
             // Build PR URL from remote_url
             if !state.git.remote_url.is_empty()
                 && let Some(num) = &state.git.pr_number
@@ -102,6 +102,7 @@ pub(super) fn render_git_header(
                     x_offset: pr_x_offset,
                     text: pr.clone(),
                     url: format!("{}/pull/{num}", state.git.remote_url),
+                    style: pr_style,
                 });
             }
         } else if !movement_spans.is_empty() {

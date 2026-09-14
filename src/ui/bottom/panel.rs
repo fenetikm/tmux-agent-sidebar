@@ -30,7 +30,7 @@ fn row_line(
     row: &PanelRow,
     width: usize,
     theme: &ColorTheme,
-) -> (Line<'static>, Option<(u16, String)>) {
+) -> (Line<'static>, Option<(u16, String, Style)>) {
     if row.heading {
         let text = truncate_to_width(&row.text, width);
         return (
@@ -64,11 +64,12 @@ fn row_line(
     }
 
     let text = truncate_to_width(&row.text, width.saturating_sub(text_col));
-    let link = row.url.as_ref().map(|_| (text_col as u16, text.clone()));
-    spans.push(Span::styled(
-        text,
-        Style::default().fg(color_for(row.text_color, theme)),
-    ));
+    let text_style = Style::default().fg(color_for(row.text_color, theme));
+    let link = row
+        .url
+        .as_ref()
+        .map(|_| (text_col as u16, text.clone(), text_style));
+    spans.push(Span::styled(text, text_style));
     (Line::from(spans), link)
 }
 
@@ -116,7 +117,7 @@ pub(super) fn draw_panel_content(frame: &mut Frame, state: &mut AppState, inner:
         .enumerate()
     {
         let (line, link) = row_line(row, width, &theme);
-        if let Some((col, text)) = link
+        if let Some((col, text, style)) = link
             && let Some(ref url) = row.url
         {
             overlays.push(HyperlinkOverlay {
@@ -124,6 +125,7 @@ pub(super) fn draw_panel_content(frame: &mut Frame, state: &mut AppState, inner:
                 y: inner.y + index as u16,
                 text,
                 url: url.clone(),
+                style,
             });
         }
         lines.push(line);
