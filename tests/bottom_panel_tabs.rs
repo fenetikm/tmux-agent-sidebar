@@ -65,9 +65,8 @@ fn tab_bar_renders_the_custom_panel_name() {
     insta::assert_snapshot!(render_to_string(&mut state, 28, 24), @"
      ≡0  ●0  ◎0  ◐0  ○0  ✕0
                              — ▾
-    ╭ Activity │ Git │ PRs ────╮
-    │         Loading…         │
-    ╰──────────────────────────╯
+    ─ Activity │ Git │ PRs ─────
+              Loading…
     ");
 }
 
@@ -80,9 +79,8 @@ fn tab_bar_omits_the_activity_tab_when_disabled() {
     insta::assert_snapshot!(render_to_string(&mut state, 28, 24), @"
      ≡0  ●0  ◎0  ◐0  ○0  ✕0
                              — ▾
-    ╭ Git │ PRs ───────────────╮
-    │    Working tree clean    │
-    ╰──────────────────────────╯
+    ─ Git │ PRs ────────────────
+         Working tree clean
     ");
 }
 
@@ -96,9 +94,8 @@ fn tab_bar_shows_only_the_panel_when_activity_and_git_are_off() {
     insta::assert_snapshot!(render_to_string(&mut state, 28, 24), @"
      ≡0  ●0  ◎0  ◐0  ○0  ✕0
                              — ▾
-    ╭ PRs ─────────────────────╮
-    │         Loading…         │
-    ╰──────────────────────────╯
+    ────────────────────────────
+              Loading…
     ");
 }
 

@@ -7,7 +7,7 @@ use ratatui::{
     layout::{Alignment, Rect},
     style::{Color, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::Paragraph,
 };
 
 use crate::state::{AppState, BottomTab, BottomTabTarget, Focus};
@@ -35,49 +35,48 @@ pub fn draw_bottom(frame: &mut Frame, state: &mut AppState, area: Rect) {
     };
 
     let (tab_title, tab_targets) = build_tab_title(state);
-    state.layout.bottom_tab_targets = tab_targets
-        .into_iter()
-        .map(|mut t| {
-            t.start += area.x;
-            t.end += area.x;
-            t
-        })
-        .collect();
+    let show_tabs = state.enabled_bottom_tabs().len() > 1;
+    state.layout.bottom_tab_targets = if show_tabs {
+        tab_targets
+            .into_iter()
+            .map(|mut t| {
+                t.start += area.x;
+                t.end += area.x;
+                t
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .style(Style::default().fg(border_color));
+    // Header row. With several tabs it doubles as the switcher, so the
+    // titles are set into the rule: `─ Activity │ Git ─────`. A lone tab
+    // has nothing to switch to, so the row collapses to a plain rule. The
+    // body below runs edge to edge; side borders only cost width.
+    let rule = Style::default().fg(border_color);
+    let header_spans = if show_tabs {
+        let title_spans = tab_title.spans;
+        let title_dw = title_spans
+            .iter()
+            .map(|span| display_width(&span.content))
+            .sum::<usize>();
+        let fill = (area.width as usize).saturating_sub(title_dw + 3);
+        let mut spans = vec![Span::styled("─ ", rule)];
+        spans.extend(title_spans);
+        spans.push(Span::styled(format!(" {}", "─".repeat(fill)), rule));
+        spans
+    } else {
+        vec![Span::styled("─".repeat(area.width as usize), rule)]
+    };
+    let header_rect = Rect::new(area.x, area.y, area.width, 1);
+    frame.render_widget(Paragraph::new(Line::from(header_spans)), header_rect);
 
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
-    let title_spans = tab_title.spans;
-    let title_dw = title_spans
-        .iter()
-        .map(|span| display_width(&span.content))
-        .sum::<usize>();
-    let top_fill_len = (area.width as usize).saturating_sub(title_dw + 4);
-    let mut top_line_spans = vec![Span::styled("╭ ", Style::default().fg(border_color))];
-    top_line_spans.extend(title_spans);
-    top_line_spans.push(Span::styled(
-        format!(" {}╮", "─".repeat(top_fill_len)),
-        Style::default().fg(border_color),
-    ));
-    let top_line = Line::from(top_line_spans);
-    let top_rect = Rect::new(area.x, area.y, area.width, 1);
-    frame.render_widget(Paragraph::new(top_line), top_rect);
-
-    let bottom_line = Line::from(Span::styled(
-        format!("╰{}╯", "─".repeat((area.width as usize).saturating_sub(2))),
-        Style::default().fg(border_color),
-    ));
-    let bottom_rect = Rect::new(
+    let inner = Rect::new(
         area.x,
-        area.y + area.height.saturating_sub(1),
+        area.y.saturating_add(1),
         area.width,
-        1,
+        area.height.saturating_sub(1),
     );
-    frame.render_widget(Paragraph::new(bottom_line), bottom_rect);
 
     match state.bottom_tab {
         BottomTab::Activity => activity::draw_activity_content(frame, state, inner),
@@ -115,7 +114,7 @@ pub fn build_tab_title(state: &AppState) -> (Line<'static>, Vec<BottomTabTarget>
         })
         .collect();
 
-    // Column 0 is the `╭` border, column 1 the space after it.
+    // Column 0 is the leading `─`, column 1 the space after it.
     const TITLE_START_COL: u16 = 2;
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut targets: Vec<BottomTabTarget> = Vec::new();

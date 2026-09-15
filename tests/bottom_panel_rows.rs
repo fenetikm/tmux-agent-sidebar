@@ -54,10 +54,9 @@ fn renders_plain_rows() {
     insta::assert_snapshot!(render(&mut state), @"
      ≡0  ●0  ◎0  ◐0  ○0  ✕0
                              — ▾
-    ╭ Activity │ Git │ PRs ────╮
-    │#412 fix flaky test       │
-    │#98 bump deps             │
-    ╰──────────────────────────╯
+    ─ Activity │ Git │ PRs ─────
+    #412 fix flaky test
+    #98 bump deps
     ");
 }
 
@@ -94,11 +93,10 @@ fn renders_icons_headings_and_colors() {
     insta::assert_snapshot!(render(&mut state), @"
      ≡0  ●0  ◎0  ◐0  ○0  ✕0
                              — ▾
-    ╭ Activity │ Git │ PRs ────╮
-    │Needs review              │
-    │+ #412 approved           │
-    │! #77 stale               │
-    ╰──────────────────────────╯
+    ─ Activity │ Git │ PRs ─────
+    Needs review
+    + #412 approved
+    ! #77 stale
     ");
 }
 
@@ -113,9 +111,8 @@ fn truncates_long_rows_to_the_panel_width() {
     insta::assert_snapshot!(render(&mut state), @"
      ≡0  ●0  ◎0  ◐0  ○0  ✕0
                              — ▾
-    ╭ Activity │ Git │ PRs ────╮
-    │#412 a very long pull req…│
-    ╰──────────────────────────╯
+    ─ Activity │ Git │ PRs ─────
+    #412 a very long pull reque…
     ");
 }
 
@@ -128,10 +125,9 @@ fn renders_the_error_footer_over_stale_rows() {
     insta::assert_snapshot!(render(&mut state), @"
      ≡0  ●0  ◎0  ◐0  ○0  ✕0
                              — ▾
-    ╭ Activity │ Git │ PRs ────╮
-    │#412 stale but useful     │
-    │exit 1: gh: not found     │
-    ╰──────────────────────────╯
+    ─ Activity │ Git │ PRs ─────
+    #412 stale but useful
+    exit 1: gh: not found
     ");
 }
 
@@ -141,9 +137,8 @@ fn renders_the_empty_state() {
     insta::assert_snapshot!(render(&mut state), @"
      ≡0  ●0  ◎0  ◐0  ○0  ✕0
                              — ▾
-    ╭ Activity │ Git │ PRs ────╮
-    │          No rows         │
-    ╰──────────────────────────╯
+    ─ Activity │ Git │ PRs ─────
+               No rows
     ");
 }
 
@@ -154,9 +149,8 @@ fn renders_the_loading_state_before_the_first_result() {
     insta::assert_snapshot!(render(&mut state), @"
      ≡0  ●0  ◎0  ◐0  ○0  ✕0
                              — ▾
-    ╭ Activity │ Git │ PRs ────╮
-    │         Loading…         │
-    ╰──────────────────────────╯
+    ─ Activity │ Git │ PRs ─────
+              Loading…
     ");
 }
 
@@ -188,8 +182,8 @@ fn error_footer_does_not_overwrite_the_bottom_border_when_the_panel_has_no_room(
     insta::assert_snapshot!(render_to_string(&mut state, 28, 24), @"
      ≡0  ●0  ◎0  ◐0  ○0  ✕0
                              — ▾
-    ╭ Activity │ Git │ PRs ────╮
-    ╰──────────────────────────╯
+    ─ Activity │ Git │ PRs ─────
+    exit 1: gh: not found
     ");
 }
 
@@ -204,11 +198,10 @@ fn scroll_offset_reclamps_when_rows_shrink_between_fetches() {
     insta::assert_snapshot!(render(&mut state), @"
      ≡0  ●0  ◎0  ◐0  ○0  ✕0
                              — ▾
-    ╭ Activity │ Git │ PRs ────╮
-    │row 1                     │
-    │row 2                     │
-    │row 3                     │
-    ╰──────────────────────────╯
+    ─ Activity │ Git │ PRs ─────
+    row 1
+    row 2
+    row 3
     ");
 }
 
@@ -220,26 +213,26 @@ fn scrolled_rows_start_from_the_offset() {
     insta::assert_snapshot!(render(&mut state), @"
      ≡0  ●0  ◎0  ◐0  ○0  ✕0
                              — ▾
-    ╭ Activity │ Git │ PRs ────╮
-    │row 3                     │
-    │row 4                     │
-    │row 5                     │
-    │row 6                     │
-    │row 7                     │
-    │row 8                     │
-    │row 9                     │
-    │row 10                    │
-    │row 11                    │
-    │row 12                    │
-    │row 13                    │
-    │row 14                    │
-    │row 15                    │
-    │row 16                    │
-    │row 17                    │
-    │row 18                    │
-    │row 19                    │
-    │row 20                    │
-    ╰──────────────────────────╯
+    ─ Activity │ Git │ PRs ─────
+    row 2
+    row 3
+    row 4
+    row 5
+    row 6
+    row 7
+    row 8
+    row 9
+    row 10
+    row 11
+    row 12
+    row 13
+    row 14
+    row 15
+    row 16
+    row 17
+    row 18
+    row 19
+    row 20
     ");
 }
 
@@ -328,15 +321,14 @@ fn colors_map_rows_and_headings_onto_the_expected_theme_fields() {
                              —[fg:252] ▾[fg:252]
 
 
-    ╭[fg:240] [fg:240]A[fg:252]c[fg:252]t[fg:252]i[fg:252]v[fg:252]i[fg:252]t[fg:252]y[fg:252] [fg:240]│[fg:240] [fg:240]G[fg:252]i[fg:252]t[fg:252] [fg:240]│[fg:240] [fg:240]P[fg:153]R[fg:153]s[fg:153] [fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]╮[fg:240]
-    │[fg:240]H[fg:109]e[fg:109]a[fg:109]d[fg:109]i[fg:109]n[fg:109]g[fg:109] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240]│[fg:240]
-    │[fg:240]*[fg:255] [fg:240]d[fg:255]e[fg:255]f[fg:255]a[fg:255]u[fg:255]l[fg:255]t[fg:255] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240]│[fg:240]
-    │[fg:240]*[fg:252] [fg:240]m[fg:252]u[fg:252]t[fg:252]e[fg:252]d[fg:252] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240]│[fg:240]
-    │[fg:240]*[fg:153] [fg:240]a[fg:153]c[fg:153]c[fg:153]e[fg:153]n[fg:153]t[fg:153] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240]│[fg:240]
-    │[fg:240]*[fg:114] [fg:240]s[fg:114]u[fg:114]c[fg:114]c[fg:114]e[fg:114]s[fg:114]s[fg:114] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240]│[fg:240]
-    │[fg:240]*[fg:221] [fg:240]w[fg:221]a[fg:221]r[fg:221]n[fg:221]i[fg:221]n[fg:221]g[fg:221] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240]│[fg:240]
-    │[fg:240]*[fg:167] [fg:240]d[fg:167]a[fg:167]n[fg:167]g[fg:167]e[fg:167]r[fg:167] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240] [fg:240]│[fg:240]
-    ╰[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]╯[fg:240]
+    ─[fg:240] [fg:240]A[fg:252]c[fg:252]t[fg:252]i[fg:252]v[fg:252]i[fg:252]t[fg:252]y[fg:252] [fg:240]│[fg:240] [fg:240]G[fg:252]i[fg:252]t[fg:252] [fg:240]│[fg:240] [fg:240]P[fg:153]R[fg:153]s[fg:153] [fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]─[fg:240]
+    H[fg:109]e[fg:109]a[fg:109]d[fg:109]i[fg:109]n[fg:109]g[fg:109]
+    *[fg:255] d[fg:255]e[fg:255]f[fg:255]a[fg:255]u[fg:255]l[fg:255]t[fg:255]
+    *[fg:252] m[fg:252]u[fg:252]t[fg:252]e[fg:252]d[fg:252]
+    *[fg:153] a[fg:153]c[fg:153]c[fg:153]e[fg:153]n[fg:153]t[fg:153]
+    *[fg:114] s[fg:114]u[fg:114]c[fg:114]c[fg:114]e[fg:114]s[fg:114]s[fg:114]
+    *[fg:221] w[fg:221]a[fg:221]r[fg:221]n[fg:221]i[fg:221]n[fg:221]g[fg:221]
+    *[fg:167] d[fg:167]a[fg:167]n[fg:167]g[fg:167]e[fg:167]r[fg:167]
     ");
 }
 
@@ -346,9 +338,8 @@ fn a_lone_centered_row_looks_like_the_built_in_empty_state() {
     insta::assert_snapshot!(render_to_string(&mut state, 28, 24), @"
      ≡0  ●0  ◎0  ◐0  ○0  ✕0
                              — ▾
-    ╭ Activity │ Git │ PRs ────╮
-    │   Not a git repository   │
-    ╰──────────────────────────╯
+    ─ Activity │ Git │ PRs ─────
+        Not a git repository
     ");
 }
 
@@ -384,13 +375,10 @@ fn a_lone_centered_row_is_centred_vertically_in_a_tall_panel() {
 
 
 
-    ╭ Activity │ Git │ PRs ────╮
-    │                          │
-    │                          │
-    │   Not a git repository   │
-    │                          │
-    │                          │
-    ╰──────────────────────────╯
+    ─ Activity │ Git │ PRs ─────
+
+
+        Not a git repository
     ");
 }
 
@@ -404,13 +392,8 @@ fn normal_rows_stay_at_the_top_of_a_tall_panel() {
 
 
 
-    ╭ Activity │ Git │ PRs ────╮
-    │#412 fix it               │
-    │                          │
-    │                          │
-    │                          │
-    │                          │
-    ╰──────────────────────────╯
+    ─ Activity │ Git │ PRs ─────
+    #412 fix it
     ");
 }
 
@@ -427,10 +410,9 @@ fn centered_rows_among_normal_rows_stay_in_place() {
     insta::assert_snapshot!(render_to_string(&mut state, 28, 24), @"
      ≡0  ●0  ◎0  ◐0  ○0  ✕0
                              — ▾
-    ╭ Activity │ Git │ PRs ────╮
-    │#412 fix it               │
-    │       nothing else       │
-    │#410                      │
-    ╰──────────────────────────╯
+    ─ Activity │ Git │ PRs ─────
+    #412 fix it
+            nothing else
+    #410
     ");
 }
