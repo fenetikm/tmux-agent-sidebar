@@ -1,5 +1,6 @@
 use ratatui::{style::Style, text::Line};
 
+use crate::state::CompactLevel;
 use crate::tmux::PaneStatus;
 use crate::ui::colors::ColorTheme;
 use crate::ui::icons::StatusIcons;
@@ -54,7 +55,7 @@ pub(super) fn render_pane_lines_with_ports(
         now,
         true,
         true,
-        false,
+        CompactLevel::Off,
     )
 }
 
@@ -74,7 +75,7 @@ pub(super) fn render_pane_lines_with_options(
     now: u64,
     show_session_names: bool,
     show_worktree_marker: bool,
-    compact: bool,
+    compact: CompactLevel,
 ) -> Vec<Line<'static>> {
     let bg = if selected {
         Some(theme.selection_bg)
@@ -123,7 +124,7 @@ pub(super) fn render_pane_lines_with_options(
         active,
     };
 
-    if compact {
+    if compact != CompactLevel::Off {
         return render_compact_pane_lines(
             pane,
             git_info,
@@ -133,6 +134,7 @@ pub(super) fn render_pane_lines_with_options(
             spinner_frame,
             now,
             show_worktree_marker,
+            compact == CompactLevel::Compact,
         );
     }
 
@@ -339,7 +341,7 @@ mod tests {
             0,
             false,
             true,
-            false,
+            CompactLevel::Off,
         );
 
         let status = line_text(&lines[0]);

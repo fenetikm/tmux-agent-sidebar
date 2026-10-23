@@ -137,7 +137,7 @@ impl AppState {
         }
     }
 
-    /// Flip compact rows and persist the choice to `@sidebar_compact`.
+    /// Advance to the next compact level and persist it to `@sidebar_compact`.
     ///
     /// Persistence is write-on-toggle and read-at-startup only — there is
     /// no sync-back from tmux, so a failed write costs the setting on the
@@ -145,9 +145,9 @@ impl AppState {
     /// `last_saved_*` bookkeeping `GlobalState::save_filter` carries.
     ///
     /// Row heights change, so the click hit-test targets must be rebuilt.
-    pub fn toggle_compact_rows(&mut self) {
-        self.compact_rows = !self.compact_rows;
-        let value = if self.compact_rows { "on" } else { "off" };
+    pub fn cycle_compact_level(&mut self) {
+        self.compact_level = self.compact_level.next();
+        let value = self.compact_level.option_value();
         crate::tmux::run_tmux(&["set", "-g", crate::tmux::SIDEBAR_COMPACT, value]);
         self.rebuild_row_targets();
     }

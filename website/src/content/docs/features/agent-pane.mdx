@@ -130,7 +130,7 @@ One reason is deliberately absent: an agent sitting at an idle prompt is reporte
 
 ## Compact display mode
 
-Press `c` in the agent pane (or set `@sidebar_compact on` before starting the sidebar) to collapse every agent entry to exactly two lines. The setting persists across sidebar restarts via `@sidebar_compact`.
+Press `c` in the agent pane (or set `@sidebar_compact on` before starting the sidebar) to collapse every agent entry to at most two lines. Press `c` again for minimal mode (`@sidebar_compact minimal`), and once more to return to the expanded rows. The setting persists across sidebar restarts via `@sidebar_compact`.
 
 **Line 1** combines the status icon, a provider glyph (`✳` Claude, `◆` Codex, `◇` OpenCode), a `!` marker when the agent runs with `bypassPermissions`, the git branch, and right-aligned elapsed time.
 
@@ -140,6 +140,9 @@ Press `c` in the agent pane (or set `@sidebar_compact on` before starting the si
 2. Background shell command (`$ cargo watch …`)
 3. Latest prompt (with `▷` for agent responses)
 4. Idle hint (`Waiting for prompt…`)
-5. A muted `-` when there is nothing to report
+
+When there is nothing to report, line 2 is omitted.
 
 Compact mode hides the session name, the permission-mode badge (`auto`, `plan`, `edit`, `dontAsk`, `defer` — `!` survives), listening ports, task progress, the subagent tree, the `×` worktree remove marker, and prompt continuation lines. Sidebar-spawned worktrees can still be removed with `x`. Override the provider glyphs via `@sidebar_icon_agent_*` if a glyph renders double-width in your terminal.
+
+**Minimal mode** keeps line 1 only, so every agent takes a single line and the status icon's shape and colour are the only indication of its state. Wait reasons, background commands, and prompts are hidden; press `c` to cycle back when you need them.

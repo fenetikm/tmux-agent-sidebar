@@ -8,7 +8,7 @@ use ratatui::{
 use super::SPAWN_BUTTON;
 use super::row;
 use crate::group::RepoGroup;
-use crate::state::{AppState, Focus, RepoFilter, StatusFilter};
+use crate::state::{AppState, CompactLevel, Focus, RepoFilter, StatusFilter};
 use crate::ui::text::display_width;
 
 #[derive(Debug, Default)]
@@ -297,7 +297,7 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
                 state.now,
                 state.show_session_names,
                 state.show_worktree_marker,
-                state.compact_rows,
+                state.compact_level,
             );
             let pane_line_count = pane_lines.len();
             collected.lines.extend(pane_lines);
@@ -314,7 +314,7 @@ pub(super) fn collect(state: &AppState, width: u16) -> CollectedRows {
             // Compact rows draw no `×`, so registering a target would put a
             // destructive click behind an invisible affordance. Removal is
             // still reachable there via the `x` keybinding.
-            if !state.compact_rows
+            if state.compact_level == CompactLevel::Off
                 && pane.sidebar_spawned
                 && git_info.is_worktree
                 && pane_line_count >= 2
@@ -517,7 +517,7 @@ mod tests {
     #[test]
     fn collect_skips_remove_target_when_compact() {
         let mut state = state_with_spawned_worktree();
-        state.compact_rows = true;
+        state.compact_level = CompactLevel::Compact;
         let collected = collect(&state, 40);
         assert!(
             collected.pending_remove.is_empty(),

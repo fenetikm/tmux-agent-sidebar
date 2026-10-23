@@ -14,7 +14,7 @@ description: Every shortcut in the sidebar, the worktree spawn modal, and the cl
 | `h` / `Left`   | Previous status filter                                        |
 | `l` / `Right`  | Next status filter                                            |
 | `r`            | Open repo filter popup                                        |
-| `c`            | Toggle compact rows (two lines per agent)                     |
+| `c`            | Cycle row density: expanded → compact → minimal               |
 | `Enter`        | Jump to the selected pane                                     |
 | `Tab`          | Cycle status filter                                           |
 | `Shift+Tab`    | Switch bottom panel tab (Activity ⇄ Git, plus an optional Custom tab) |

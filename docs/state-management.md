@@ -99,7 +99,7 @@ Per-pane file-based state:
 | `pet_frame` | Every 200ms (animation) | Animation frame counter |
 | `pet_bob_timer` | Every 200ms (animation) | Idle bob motion timer |
 | `pet_enabled` | Once at startup | Whether the pet is drawn and ticked (from `@sidebar_pet`) |
-| `compact_rows` | Once at startup, then on `c` | Whether agent entries render as two fixed lines (from `@sidebar_compact`, written back on toggle) |
+| `compact_level` | Once at startup, then on `c` | `CompactLevel` row density: `Off` (expanded), `Compact` (header plus one detail line), or `Minimal` (header only). From `@sidebar_compact` (`off` / `on` / `minimal`), written back on each `c` cycle |
 | `sort_mode` | Startup, then on sidebar window re-focus | How the agent list is grouped: `SortMode::Repository` or `SortMode::Session` (from `@sidebar_sorting`, never written back) |
 | `show_empty_sessions` | Startup, then on sidebar window re-focus | Whether agent-less tmux sessions get a bare header row (from `@sidebar_show_empty_sessions`, never written back) |
 | `empty_sessions` | Every 1s | Names of tmux sessions holding no agents, sorted case-insensitively. Empty unless `show_empty_sessions` is on and `sort_mode` is `Session`. Sourced from the `list-panes -a` sweep, which sees these sessions before `finalize_sessions` drops them |

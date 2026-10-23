@@ -36,6 +36,38 @@ pub use scroll::{ScrollState, ScrollStates};
 pub use session::SessionNamesState;
 pub use timers::RefreshTimers;
 
+/// Agent row density, persisted as `@sidebar_compact`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CompactLevel {
+    /// Variable-height rows with every detail. The default.
+    #[default]
+    Off,
+    /// A header line plus at most one line of contextual detail.
+    Compact,
+    /// The header line alone, so the status icon is the only state signal.
+    Minimal,
+}
+
+impl CompactLevel {
+    /// The level `c` moves to: expanded → compact → minimal → expanded.
+    pub fn next(self) -> Self {
+        match self {
+            Self::Off => Self::Compact,
+            Self::Compact => Self::Minimal,
+            Self::Minimal => Self::Off,
+        }
+    }
+
+    /// The `@sidebar_compact` value that reads back as this level.
+    pub fn option_value(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Compact => "on",
+            Self::Minimal => "minimal",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum BottomTab {
     Activity,
@@ -155,10 +187,10 @@ pub struct AppState {
     /// cosmetic: the `x` worktree-remove affordance keys off the pane's
     /// worktree metadata, not this marker.
     pub show_worktree_marker: bool,
-    /// Render every agent entry in exactly two lines instead of the
-    /// variable-height detail rows. Loaded at startup from
-    /// `@sidebar_compact` and toggled at runtime by `c`.
-    pub compact_rows: bool,
+    /// How densely agent entries render: variable-height detail rows, the
+    /// two-line compact rows, or the one-line minimal rows. Loaded at startup
+    /// from `@sidebar_compact` and cycled at runtime by `c`.
+    pub compact_level: CompactLevel,
     /// Hide the status filter bar and treat the agent list as unfiltered.
     /// Loaded at startup from `@sidebar_hide_filter_bar` and toggled at
     /// runtime by `f`.
@@ -244,7 +276,7 @@ impl AppState {
             pet_enabled: false,
             show_session_names: true,
             show_worktree_marker: true,
-            compact_rows: false,
+            compact_level: CompactLevel::Off,
             hide_filter_bar: false,
             hide_repo_filter: false,
             sort_mode: crate::group::SortMode::Repository,

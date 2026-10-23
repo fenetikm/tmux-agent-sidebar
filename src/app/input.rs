@@ -145,7 +145,7 @@ pub(super) fn handle_key_event(
             state.open_remove_confirm();
         }
         KeyCode::Char('c') if state.focus_state.focus == Focus::Panes => {
-            state.toggle_compact_rows();
+            state.cycle_compact_level();
         }
         KeyCode::Char('f') if state.focus_state.focus == Focus::Panes => {
             state.toggle_hide_filter_bar();
@@ -227,7 +227,7 @@ fn repo_popup_nav_up(state: &mut AppState) {
 mod tests {
     use super::*;
     use crate::group::{PaneGitInfo, RepoGroup};
-    use crate::state::{RowTarget, StatusFilter};
+    use crate::state::{CompactLevel, RowTarget, StatusFilter};
     use crate::tmux::{AgentType, PaneInfo, PaneStatus, PermissionMode, WorktreeMetadata};
     use crossterm::event::{Event, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
     use ratatui::{Terminal, backend::CrosstermBackend};
@@ -419,14 +419,24 @@ mod tests {
     }
 
     #[test]
-    fn bare_c_toggles_compact_rows_in_panes_focus() {
+    fn bare_c_cycles_compact_level_in_panes_focus() {
         let mut state = state_with_three_panes();
         let flag = AtomicBool::new(false);
-        assert!(!state.compact_rows, "compact mode starts off");
+        assert_eq!(state.compact_level, CompactLevel::Off, "compact starts off");
         handle_key_event(key(KeyCode::Char('c')), &mut state, &flag);
-        assert!(state.compact_rows, "c enables compact mode");
+        assert_eq!(
+            state.compact_level,
+            CompactLevel::Compact,
+            "c enables compact"
+        );
         handle_key_event(key(KeyCode::Char('c')), &mut state, &flag);
-        assert!(!state.compact_rows, "c disables compact mode again");
+        assert_eq!(state.compact_level, CompactLevel::Minimal, "c goes minimal");
+        handle_key_event(key(KeyCode::Char('c')), &mut state, &flag);
+        assert_eq!(
+            state.compact_level,
+            CompactLevel::Off,
+            "c wraps to expanded"
+        );
     }
 
     #[test]

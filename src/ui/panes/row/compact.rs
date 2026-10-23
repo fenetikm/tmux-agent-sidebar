@@ -16,7 +16,9 @@ use crate::ui::text::{
 const BODY_PREFIX_WIDTH: usize = 2;
 
 /// Render one agent entry in compact mode: always one header line, plus an
-/// optional second line when there is contextual detail to show.
+/// optional second line when there is contextual detail to show and
+/// `show_body` is set. The minimal level clears `show_body`, leaving the
+/// status icon as the only indicator of what the agent is doing.
 ///
 /// Line 1 fuses what the expanded rows split across the status row and the
 /// branch row (`marker_ctx`, including selection background when selected).
@@ -32,6 +34,7 @@ pub(super) fn render_pane_lines(
     spinner_frame: usize,
     now: u64,
     show_worktree_marker: bool,
+    show_body: bool,
 ) -> Vec<Line<'static>> {
     let mut lines = vec![header_line(
         pane,
@@ -42,7 +45,7 @@ pub(super) fn render_pane_lines(
         now,
         show_worktree_marker,
     )];
-    if let Some(line) = body_line(pane, plain_ctx) {
+    if show_body && let Some(line) = body_line(pane, plain_ctx) {
         lines.push(line);
     }
     lines
@@ -268,6 +271,21 @@ mod tests {
         width: usize,
         show_worktree_marker: bool,
     ) -> String {
+        render_lines(pane, git_info, width, show_worktree_marker, true)
+    }
+
+    /// `render` at the minimal level, where the body line is never drawn.
+    fn render_minimal(pane: &PaneInfo, git_info: &PaneGitInfo, width: usize) -> String {
+        render_lines(pane, git_info, width, true, false)
+    }
+
+    fn render_lines(
+        pane: &PaneInfo,
+        git_info: &PaneGitInfo,
+        width: usize,
+        show_worktree_marker: bool,
+        show_body: bool,
+    ) -> String {
         let theme = ColorTheme::default();
         let c = ctx(&theme, width);
         let lines = render_pane_lines(
@@ -279,6 +297,7 @@ mod tests {
             0,
             NOW,
             show_worktree_marker,
+            show_body,
         );
         let out = lines
             .iter()
@@ -308,6 +327,7 @@ mod tests {
             &StatusIcons::default(),
             0,
             NOW,
+            true,
             true,
         );
         lines[0].spans[2].style.fg
@@ -393,6 +413,33 @@ mod tests {
         ● ✳ feat/a-very-lon… 3m20s
           Investigate the failing…
         ");
+    }
+
+    #[test]
+    fn minimal_drops_the_body_line_so_the_icon_carries_the_state() {
+        let mut p = pane(PaneStatus::Waiting);
+        p.wait_reason = "permission_prompt".into();
+        p.prompt = "this prompt must not render".into();
+        insta::assert_snapshot!(render_minimal(&p, &git("main"), 44), @"  ◐ ✳ main                               3m20s");
+    }
+
+    #[test]
+    fn minimal_renders_one_line_for_every_status() {
+        for status in [
+            PaneStatus::Running,
+            PaneStatus::Background,
+            PaneStatus::Waiting,
+            PaneStatus::Idle,
+            PaneStatus::Error,
+            PaneStatus::Unknown,
+        ] {
+            let mut p = pane(status.clone());
+            p.prompt = "some prompt".into();
+            p.wait_reason = "permission_prompt".into();
+            p.bg_shell_cmd = Some("cargo test".into());
+            let out = render_minimal(&p, &git("main"), 44);
+            assert_eq!(out.lines().count(), 1, "{status:?} rendered: {out}");
+        }
     }
 
     #[test]
@@ -545,6 +592,7 @@ mod tests {
                     &StatusIcons::default(),
                     0,
                     NOW,
+                    true,
                     true,
                 );
                 assert!(

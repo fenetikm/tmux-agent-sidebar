@@ -2,7 +2,7 @@
 mod test_helpers;
 
 use test_helpers::*;
-use tmux_agent_sidebar::state::Focus;
+use tmux_agent_sidebar::state::{CompactLevel, Focus};
 use tmux_agent_sidebar::tmux::{AgentType, PaneStatus, SessionInfo, WindowInfo};
 use tmux_agent_sidebar::ui::colors::ColorTheme;
 use tmux_agent_sidebar::ui::icons::StatusIcons;
@@ -425,7 +425,7 @@ fn compact_state() -> tmux_agent_sidebar::state::AppState {
     let mut state = make_state(vec![]);
     state.repo_groups = vec![make_repo_group("project", vec![running, waiting, idle])];
     state.focus_state.focus = Focus::Panes;
-    state.compact_rows = true;
+    state.compact_level = CompactLevel::Compact;
     state.rebuild_row_targets();
     state
 }
@@ -461,9 +461,46 @@ fn snapshot_compact_rows_at_narrow_width() {
 }
 
 #[test]
+fn snapshot_minimal_rows_are_one_line_each() {
+    let mut state = compact_state();
+    state.compact_level = CompactLevel::Minimal;
+    state.rebuild_row_targets();
+    let output = render_to_string(&mut state, 44, 30);
+    insta::assert_snapshot!(output, @"
+     ≡3  ●1  ◎0  ◐1  ○1  ✕0
+    ⓘ                                        — ▾
+    project
+    ┃ ● ✳                                  3m20s
+      ◐ ◆                                    40s
+      ○ ◇                                1h1m40s
+    ─ Activity │ Git ───────────────────────────
+                   No activity yet
+    ");
+}
+
+#[test]
+fn minimal_rows_use_fewer_lines_than_compact() {
+    // Non-visual: minimal exists to fit more agents than compact does.
+    let mut compact = compact_state();
+    let _ = render_to_string(&mut compact, 44, 40);
+    let compact_lines = compact.scrolls.panes.total_lines;
+
+    let mut minimal = compact_state();
+    minimal.compact_level = CompactLevel::Minimal;
+    minimal.rebuild_row_targets();
+    let _ = render_to_string(&mut minimal, 44, 40);
+    let minimal_lines = minimal.scrolls.panes.total_lines;
+
+    assert!(
+        minimal_lines < compact_lines,
+        "minimal ({minimal_lines}) should use fewer lines than compact ({compact_lines})"
+    );
+}
+
+#[test]
 fn snapshot_expanded_rows_unchanged_when_compact_is_off() {
     let mut state = compact_state();
-    state.compact_rows = false;
+    state.compact_level = CompactLevel::Off;
     let output = render_to_string(&mut state, 44, 30);
     insta::assert_snapshot!(output, @"
      ≡3  ●1  ◎0  ◐1  ○1  ✕0
@@ -485,7 +522,7 @@ fn compact_rows_reduce_total_rendered_lines() {
     // Non-visual: the whole point of the mode is fewer lines for the
     // same agents, so assert the height relationship directly.
     let mut expanded = compact_state();
-    expanded.compact_rows = false;
+    expanded.compact_level = CompactLevel::Off;
     let _ = render_to_string(&mut expanded, 44, 40);
     let expanded_lines = expanded.scrolls.panes.total_lines;
 

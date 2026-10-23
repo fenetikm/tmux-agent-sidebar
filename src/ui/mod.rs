@@ -13,7 +13,11 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
 };
 
-use crate::{group::SortMode, state::AppState, tmux};
+use crate::{
+    group::SortMode,
+    state::{AppState, CompactLevel},
+    tmux,
+};
 
 pub const BOTTOM_PANEL_HEIGHT: u16 = 20;
 
@@ -76,19 +80,25 @@ pub fn show_worktree_marker_from_options(opts: &HashMap<String, String>) -> bool
         .unwrap_or(true)
 }
 
-/// Read `@sidebar_compact` from tmux global options, defaulting to `false`
-/// so existing users keep the variable-height rows.
-/// Accepts `on`/`off`, `true`/`false`, `1`/`0` (case-insensitive).
-pub fn compact_rows_from_options(opts: &HashMap<String, String>) -> bool {
-    opts.get(tmux::SIDEBAR_COMPACT)
+/// Read `@sidebar_compact` from tmux global options, defaulting to
+/// `CompactLevel::Off` so existing users keep the variable-height rows.
+/// `minimal` selects one-line rows; `on`/`true`/`1`/`yes` select the two-line
+/// compact rows (case-insensitive). Anything else is off.
+pub fn compact_level_from_options(opts: &HashMap<String, String>) -> CompactLevel {
+    match opts
+        .get(tmux::SIDEBAR_COMPACT)
         .map(|s| s.trim().to_ascii_lowercase())
-        .map(|s| matches!(s.as_str(), "on" | "true" | "1" | "yes"))
-        .unwrap_or(false)
+        .as_deref()
+    {
+        Some("minimal") => CompactLevel::Minimal,
+        Some("on" | "true" | "1" | "yes") => CompactLevel::Compact,
+        _ => CompactLevel::Off,
+    }
 }
 
-pub fn compact_rows_from_tmux() -> bool {
+pub fn compact_level_from_tmux() -> CompactLevel {
     let opts = crate::tmux::get_all_global_options();
-    compact_rows_from_options(&opts)
+    compact_level_from_options(&opts)
 }
 
 /// Read `@sidebar_hide_filter_bar` from tmux global options, defaulting to
@@ -189,7 +199,7 @@ pub fn apply_sidebar_ui_options(state: &mut AppState, opts: &HashMap<String, Str
     state.pet_enabled = pet_enabled_from_options(opts);
     state.show_session_names = show_session_names_from_options(opts);
     state.show_worktree_marker = show_worktree_marker_from_options(opts);
-    state.compact_rows = compact_rows_from_options(opts);
+    state.compact_level = compact_level_from_options(opts);
     state.hide_filter_bar = hide_filter_bar_from_options(opts);
     state.hide_repo_filter = hide_repo_filter_from_options(opts);
     state.sort_mode = sort_mode_from_options(opts);
@@ -407,30 +417,45 @@ mod tests {
     }
 
     #[test]
-    fn compact_rows_defaults_to_off() {
+    fn compact_level_defaults_to_off() {
         let opts = HashMap::new();
-        assert!(!compact_rows_from_options(&opts));
+        assert_eq!(compact_level_from_options(&opts), CompactLevel::Off);
     }
 
     #[test]
-    fn compact_rows_accepts_truthy_spellings() {
+    fn compact_level_accepts_truthy_spellings_as_compact() {
         for value in ["on", "true", "1", "yes", "ON", " On ", "TRUE"] {
             let mut opts = HashMap::new();
             opts.insert(tmux::SIDEBAR_COMPACT.into(), value.into());
-            assert!(
-                compact_rows_from_options(&opts),
+            assert_eq!(
+                compact_level_from_options(&opts),
+                CompactLevel::Compact,
                 "{value:?} should enable compact rows"
             );
         }
     }
 
     #[test]
-    fn compact_rows_rejects_other_values() {
+    fn compact_level_accepts_minimal() {
+        for value in ["minimal", "MINIMAL", " Minimal "] {
+            let mut opts = HashMap::new();
+            opts.insert(tmux::SIDEBAR_COMPACT.into(), value.into());
+            assert_eq!(
+                compact_level_from_options(&opts),
+                CompactLevel::Minimal,
+                "{value:?} should select minimal rows"
+            );
+        }
+    }
+
+    #[test]
+    fn compact_level_rejects_other_values() {
         for value in ["off", "false", "0", "no", "", "maybe"] {
             let mut opts = HashMap::new();
             opts.insert(tmux::SIDEBAR_COMPACT.into(), value.into());
-            assert!(
-                !compact_rows_from_options(&opts),
+            assert_eq!(
+                compact_level_from_options(&opts),
+                CompactLevel::Off,
                 "{value:?} should leave compact rows off"
             );
         }
